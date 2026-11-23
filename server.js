@@ -15,4 +15,4 @@ const server = http.createServer((req,res)=>{
   });
 });
 const port = Number(process.env.PORT || 3000);
-server.listen(port,'0.0.0.0',()=>console.log(`PostPilot demo listening on ${port}`));
+server.listen(port,'0.0.0.0',()=>console.log(`인스타오토 로컬 미리보기 서버가 ${port} 포트에서 실행 중입니다.`));

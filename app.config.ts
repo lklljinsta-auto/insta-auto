@@ -1,3 +1,3 @@
 export default {
-  logoUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663885235131/hQNpvONxqgbfqzgM.svg",
+  logoUrl: "https://raw.githubusercontent.com/lklljinsta-auto/insta-auto/main/instaauto-mark.svg",
 };

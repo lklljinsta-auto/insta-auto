@@ -1,0 +1,4 @@
+/* 작은 안내·상태 문구도 읽을 수 있도록 최소 크기를 보정합니다. */
+.nav-caption,.brand-copy small,.workspace-label small,.sidebar-note span,.sidebar-note small,.topbar-status,.eyebrow,.panel-heading p,.record-type,.record-state>span:last-child,.status-text,.plain-handle,.state-chip,.count-chip,.empty-state p,.integration-row>strong,.integration-row p,.field-help,.btn-small,.breadcrumb{font-size:15px!important}
+.nav-item{font-size:16px!important}
+@media(max-width:720px){.nav-item{font-size:15px!important}}
