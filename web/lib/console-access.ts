@@ -16,5 +16,5 @@ export async function consoleAccess(user?:ChatGPTUser){
   return {owner:env.CONSOLE_SHARED_WORKSPACE?.trim()||u.userId,canEdit:true,manageUsers:true,label};
  }
  const grant=await env.DB!.prepare('select owner from viewers where email=?').bind(email).first<{owner:string}>();
- return grant?{owner:grant.owner,canEdit:true,manageUsers:false,label:'운영 사용자'}:null;
+ return grant?{owner:grant.owner,canEdit:true,manageUsers:false,label:'사용자'}:null;
 }
