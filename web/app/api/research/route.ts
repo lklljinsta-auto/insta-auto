@@ -1,6 +1,7 @@
 import {env} from 'cloudflare:workers';
 import {consoleAccess} from '../../../lib/console-access';
 import {researchTarget} from '../../../lib/research-target';
+import {profileFields,mediaFields} from '../../../lib/research-fields';
 export const dynamic='force-dynamic';
 const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cache-Control':'private, no-store'}});
 export async function POST(req:Request){
@@ -9,11 +10,12 @@ export async function POST(req:Request){
  const body=await req.json().catch(()=>null);
  const target=typeof body?.input==='string'?researchTarget(body.input):null;
  if(!target)return json({error:'Instagram 주소 또는 아이디를 확인하세요.'},400);
- if(!target.username)return json({status:'공개 게시물 미리보기'});
+ if(!target.username)return json({status:'작성자 아이디 필요'});
  const token=env.META_DISCOVERY_ACCESS_TOKEN,id=env.META_DISCOVERY_IG_ID;
  if(!token||!id||!/^\d+$/.test(id))return json({status:'API 미연결'});
  const url=new URL('https://graph.facebook.com/v27.0/'+id);
- const base='username,name,biography,followers_count,follows_count,media_count';
+ const base='id,username,biography,followers_count,media_count';
+ const profileKeys=Object.keys(profileFields),mediaKeys=Object.keys(mediaFields);
  async function query(fields:string){
   url.searchParams.set('fields','business_discovery.username('+target!.username+'){'+fields+'}');
   const response=await fetch(url,{headers:{Authorization:'Bearer '+token},redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000)});
@@ -27,7 +29,10 @@ export async function POST(req:Request){
   return {data:response.ok?payload.business_discovery:null,status,code};
  }
  try{
-  let result=await query(base+',media.limit(12){permalink,caption,media_type,media_product_type,timestamp,like_count,comments_count,view_count}');
+  let result=await query(profileKeys.join(',')+',media.limit(12){'+mediaKeys.join(',')+'}');
+  if(!result.data&&[10,100,200].includes(result.code??0)){
+   result=await query('id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count,media.limit(12){id,permalink,caption,media_type,media_product_type,timestamp,like_count,comments_count,view_count}');
+  }
   if(!result.data&&result.code===100){
    result=await query(base+',media.limit(12){permalink,caption,media_type,timestamp,like_count,comments_count}');
   }
@@ -39,8 +44,8 @@ export async function POST(req:Request){
   const profile=result.data;
   const rows=(profile.media as {data?:Record<string,unknown>[]} | undefined)?.data;
   const clean=(obj:Record<string,unknown>,keys:string[])=>Object.fromEntries(keys.map(key=>[key,
-   typeof obj[key]==='number'||typeof obj[key]==='string'?obj[key]:null]));
-  return json({status:'조회 완료',checkedAt:new Date().toISOString(),profile:clean(profile,base.split(',')),
-   media:Array.isArray(rows)?rows.slice(0,12).map(row=>clean(row,['permalink','caption','media_product_type','media_type','timestamp','like_count','comments_count','view_count'])):null,mediaStatus});
+   typeof obj[key]==='number'||typeof obj[key]==='boolean'||typeof obj[key]==='string'?obj[key]:null]));
+  return json({status:'조회 완료',checkedAt:new Date().toISOString(),profile:clean(profile,profileKeys),
+   media:Array.isArray(rows)?rows.slice(0,12).map(row=>clean(row,mediaKeys)):null,mediaStatus});
  }catch{return json({status:'조회 오류'});}
 }

@@ -90,7 +90,7 @@ assert.equal((await lookup('@sample')).status,403);
 user('admin-id','admin@example.test');
 assert.equal((await lookup('https://invalid.example/')).status,400);
 assert.equal((await (await lookup('sample')).json()).status,'API 미연결');
-assert.equal((await (await lookup('https://www.instagram.com/reel/example/')).json()).status,'공개 게시물 미리보기');
+assert.equal((await (await lookup('https://www.instagram.com/reel/example/')).json()).status,'작성자 아이디 필요');
 Object.assign(globalThis.testEnv,{META_DISCOVERY_ACCESS_TOKEN:'fixture',META_DISCOVERY_IG_ID:'123'});
 globalThis.fetch=async(url,opts)=>{
  assert.equal(url.hostname,'graph.facebook.com');
