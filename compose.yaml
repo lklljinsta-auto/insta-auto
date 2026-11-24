@@ -1,0 +1,58 @@
+name: instaauto
+x-app: &app
+  build: .
+  environment: &env
+    DATABASE_URL: postgresql://instaauto:${DB_PASSWORD:?Run start-local first}@db:5432/instaauto
+    TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?Run start-local first}
+    APP_ORIGIN: http://localhost:3000
+    MEDIA_SPOOL_DIR: /app/media
+  volumes:
+    - media:/app/media
+services:
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: instaauto
+      POSTGRES_DB: instaauto
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Run start-local first}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U instaauto -d instaauto"]
+      interval: 3s
+      retries: 30
+      timeout: 3s
+  init:
+    <<: *app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *env
+      ADMIN_EMAIL: admin@localhost
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run start-local first}
+    command: ["sh","-ec","node scripts/migrate.js && node scripts/bootstrap-admin.js"]
+  web:
+    <<: *app
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD","node","-e","fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 4s
+      retries: 30
+      timeout: 3s
+  worker:
+    <<: *app
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    command: ["node","worker.js"]
+    restart: unless-stopped
+volumes:
+  database:
+  media:

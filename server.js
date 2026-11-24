@@ -1,18 +1,29 @@
-const http = require('node:http');
-const fs = require('node:fs');
-const path = require('node:path');
-const root = __dirname;
-const contentTypes = {'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml'};
-const server = http.createServer((req,res)=>{
-  const requestPath = decodeURIComponent((req.url || '/').split('?')[0]);
-  const relative = requestPath === '/' ? 'index.html' : requestPath.replace(/^\/+/, '');
-  const filePath = path.resolve(root, relative);
-  if (!filePath.startsWith(root + path.sep) && filePath !== path.join(root,'index.html')) { res.writeHead(403); return res.end('Forbidden'); }
-  fs.readFile(filePath,(error,data)=>{
-    if(error){res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'});return res.end('Not found');}
-    res.writeHead(200,{'Content-Type':contentTypes[path.extname(filePath)]||'application/octet-stream','Cache-Control':'no-cache'});
-    res.end(data);
-  });
-});
-const port = Number(process.env.PORT || 3000);
-server.listen(port,'0.0.0.0',()=>console.log(`인스타오토 로컬 미리보기 서버가 ${port} 포트에서 실행 중입니다.`));
+import express from 'express';
+import crypto from 'node:crypto';
+import { query, closePool } from './src/db.js';
+import { passwordMatches, hashSessionToken, requireAdmin } from './src/security.js';
+import { createApiRouter } from './src/routes/api.js';
+const app=express();
+app.disable('x-powered-by');
+app.set('trust proxy', Number(process.env.TRUST_PROXY || 0));
+app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Referrer-Policy','same-origin');res.set('Content-Security-Policy',"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'");next();});
+app.use(express.json({limit:'24mb'}));
+app.use((req,res,next)=>{const raw=req.headers.cookie||'';const match=raw.match(/(?:^|;\s*)ia_session=([^;]+)/);req.cookies={ia_session:match?decodeURIComponent(match[1]):null};next();});
+const secureCookieFor=req=>Boolean(req.get('sec-fetch-site')==='cross-site'||String(process.env.APP_ORIGIN||'').startsWith('https://'));
+const cookieOptions=req=>`Path=/; HttpOnly; SameSite=${secureCookieFor(req)?'None':'Lax'}; Max-Age=43200${secureCookieFor(req)?'; Secure':''}`;
+app.get('/api/health',async(req,res)=>{try{const db=await query('SELECT 1');res.json({status:'ready',database:db.rowCount===1,externalIntegrations:'not_assumed'});}catch{res.status(503).json({status:'database_unavailable'});}});
+app.post('/api/auth/login',async(req,res,next)=>{try{const email=String(req.body?.email||'').trim().toLowerCase();const password=String(req.body?.password||'');const r=await query('SELECT id,email,password_hash,role FROM operators WHERE lower(email)=lower($1) AND disabled_at IS NULL',[email]);if(!r.rowCount||!passwordMatches(password,r.rows[0].password_hash)){await new Promise(resolve=>setTimeout(resolve,250));return res.status(401).json({error:'invalid_credentials'});}const token=crypto.randomBytes(32).toString('base64url');const csrf=crypto.randomBytes(24).toString('base64url');await query('INSERT INTO admin_sessions(operator_id,token_hash,csrf_token,expires_at) VALUES($1,$2,$3,now()+interval \'12 hours\')',[r.rows[0].id,hashSessionToken(token),csrf]);res.setHeader('Set-Cookie',`ia_session=${encodeURIComponent(token)}; ${cookieOptions(req)}`);res.json({authenticated:true,email:r.rows[0].email,csrfToken:csrf});}catch(e){next(e);}});
+app.post('/api/auth/logout',requireAdmin,async(req,res,next)=>{try{await query('DELETE FROM admin_sessions WHERE id=$1',[req.session.id]);res.setHeader('Set-Cookie',`ia_session=; Path=/; HttpOnly; SameSite=${secureCookieFor(req)?'None':'Lax'}; Max-Age=0${secureCookieFor(req)?'; Secure':''}`);res.status(204).end();}catch(e){next(e);}});
+app.get('/api/auth/session',requireAdmin,(req,res)=>res.json({authenticated:true,email:req.admin.email,csrfToken:req.session.csrf}));
+app.use('/api',createApiRouter(requireAdmin));
+app.get('/',(req,res)=>res.sendFile(new URL('./index.html',import.meta.url).pathname));
+app.get('/styles.css',(req,res)=>res.sendFile(new URL('./styles.css',import.meta.url).pathname));
+app.get('/readable.css',(req,res)=>res.sendFile(new URL('./readable.css',import.meta.url).pathname));
+app.get('/guidance.css',(req,res)=>res.sendFile(new URL('./guidance.css',import.meta.url).pathname));
+app.get('/app.js',(req,res)=>res.sendFile(new URL('./app.js',import.meta.url).pathname));
+app.get('/instaauto-mark.svg',(req,res)=>res.sendFile(new URL('./instaauto-mark.svg',import.meta.url).pathname));
+app.use('/api',(_req,res)=>res.status(404).json({error:'not_found'}));
+app.use((err,req,res,next)=>{console.error(JSON.stringify({level:'error',code:err.code||'request_error',path:req.path,message:String(err.message||err).slice(0,200)}));if(res.headersSent)return next(err);res.status(err.status||500).json({error:err.publicCode||'internal_error'});});
+const port=Number(process.env.PORT||3000);const host=process.env.HOST||'0.0.0.0';
+const server=app.listen(port,host,()=>console.log(`InstaAuto dev API listening on ${host}:${port}; external posting is disabled unless configured.`));
+process.on('SIGTERM',()=>server.close(async()=>{await closePool();process.exit(0);}));

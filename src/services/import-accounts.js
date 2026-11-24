@@ -1,0 +1,34 @@
+import crypto from 'node:crypto';
+import ExcelJS from 'exceljs';
+import { withTransaction } from '../db.js';
+const headers={username:['username','profile','handle','계정아이디','아이디','프로필'],display_name:['display_name','name','내부이름','표시이름','계정명'],group_name:['group','group_name','그룹','운영그룹'],automation_mode:['automation_mode','mode','운영모드'],timezone:['timezone','시간대'],login_management_ip_note:['login_management_ip_note','login_ip_note','로그인관리ip메모']};
+const normalizeHeader=(v)=>String(v??'').trim().toLowerCase().replace(/[\s-]+/g,'_');
+function mapRow(keys,values,rowNumber){const o={row:rowNumber};for(const [key,aliases] of Object.entries(headers)){const idx=keys.findIndex(k=>aliases.includes(normalizeHeader(k)));o[key]=idx<0?'':String(values[idx]??'').trim();}return o;}
+function parseCsv(text){const rows=[];let row=[],cell='',quoted=false;for(let i=0;i<text.length;i++){const c=text[i];if(quoted){if(c==='"'&&text[i+1]==='"'){cell+='"';i++;}else if(c==='"')quoted=false;else cell+=c;}else if(c==='"')quoted=true;else if(c===','){row.push(cell);cell='';}else if(c==='\n'){row.push(cell.replace(/\r$/,''));rows.push(row);row=[];cell='';}else cell+=c;}if(cell.length||row.length){row.push(cell.replace(/\r$/,''));rows.push(row);}if(!rows.length)return[];const keys=rows.shift();return rows.filter(r=>r.some(v=>String(v).trim())).map((r,i)=>mapRow(keys,r,i+2));}
+async function parseFile(filename,base64){const buffer=Buffer.from(base64,'base64');if(buffer.length>20*1024*1024)throw Object.assign(new Error('file_too_large'),{status:413,publicCode:'file_too_large'});if(/\.csv$/i.test(filename))return {buffer,rows:parseCsv(buffer.toString('utf8').replace(/^\uFEFF/,''))};if(/\.xlsx$/i.test(filename)){const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer);const sheet=workbook.worksheets[0];if(!sheet)return {buffer,rows:[]};const keys=[];sheet.getRow(1).eachCell({includeEmpty:true},(cell,col)=>{keys[col-1]=String(cell.text||'').trim();});const rows=[];sheet.eachRow((r,n)=>{if(n===1)return;const values=keys.map((_,i)=>r.getCell(i+1).text);if(values.some(v=>String(v).trim()))rows.push(mapRow(keys,values,n));});return {buffer,rows};}throw Object.assign(new Error('unsupported_file_type'),{status:415,publicCode:'upload_csv_or_xlsx'});}
+const validHandle=s=>/^[A-Za-z0-9._]{1,30}$/.test(String(s||'').replace(/^@/,''));
+export async function previewOrApply({filename,base64,action}){
+ const {buffer,rows}=await parseFile(filename,base64);if(!rows.length)throw Object.assign(new Error('empty_import'),{status:400,publicCode:'no_import_rows'});
+ const hash=crypto.createHash('sha256').update(buffer).digest('hex');
+ return withTransaction(async(client)=>{
+  await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[hash]);
+  const prior=await client.query('SELECT * FROM import_batches WHERE file_sha256=$1 FOR UPDATE',[hash]);
+  if(prior.rowCount&&prior.rows[0].mode==='applied')return {batchId:prior.rows[0].id,alreadyApplied:true,rows:prior.rows[0].row_results,counts:countRows(prior.rows[0].row_results)};
+  const seen=new Set();const prepared=[];
+  for(const row of rows){const username=row.username.replace(/^@/,'');if(!validHandle(username)){prepared.push({...row,classification:'error',error:'invalid_username'});continue;}const norm=username.toLowerCase();if(seen.has(norm)){prepared.push({...row,username,classification:'duplicate',error:'duplicate_in_file'});continue;}seen.add(norm);if(row.automation_mode&&!['auto','review','paused'].includes(row.automation_mode)){prepared.push({...row,username,classification:'error',error:'invalid_automation_mode'});continue;}const found=await client.query('SELECT id,display_name,group_id,automation_mode,login_management_ip_note FROM ig_accounts WHERE lower(profile_handle)=lower($1)',[username]);prepared.push({...row,username,classification:found.rowCount?'update':'new',accountId:found.rows[0]?.id||null,existing:found.rows[0]||null});}
+  if(action==='preview'){
+    if(prior.rowCount){await client.query(`UPDATE import_batches SET file_name=$2,row_results=$3::jsonb,mode='preview' WHERE id=$1`,[prior.rows[0].id,filename,JSON.stringify(prepared)]);return {batchId:prior.rows[0].id,rows:prepared,counts:countRows(prepared),alreadyApplied:false};}
+    const saved=await client.query('INSERT INTO import_batches(file_sha256,file_name,mode,row_results) VALUES($1,$2,\'preview\',$3::jsonb) RETURNING id',[hash,filename,JSON.stringify(prepared)]);return {batchId:saved.rows[0].id,rows:prepared,counts:countRows(prepared),alreadyApplied:false};
+  }
+  if(action!=='apply')throw Object.assign(new Error('action_required'),{status:400,publicCode:'action_preview_or_apply'});
+  const results=[];
+  for(const row of prepared){if(['error','duplicate'].includes(row.classification)){results.push(row);continue;}let groupId=null;if(row.group_name){let g=await client.query('SELECT id FROM operating_groups WHERE lower(name)=lower($1)',[row.group_name]);if(!g.rowCount)g=await client.query('INSERT INTO operating_groups(name) VALUES($1) RETURNING id',[row.group_name]);groupId=g.rows[0].id;}
+   const existing=await client.query('SELECT * FROM ig_accounts WHERE lower(profile_handle)=lower($1) FOR UPDATE',[row.username]);
+   if(existing.rowCount){const old=existing.rows[0];await client.query(`UPDATE ig_accounts SET display_name=COALESCE(NULLIF($2,''),display_name),group_id=COALESCE($3,group_id),automation_mode=COALESCE(NULLIF($4,''),automation_mode),login_management_ip_note=COALESCE(NULLIF($5,''),login_management_ip_note),updated_at=now() WHERE id=$1`,[old.id,row.display_name,groupId,row.automation_mode,row.login_management_ip_note]);results.push({...row,classification:'updated',accountId:old.id});}
+   else{const inserted=await client.query(`INSERT INTO ig_accounts(profile_handle,display_name,group_id,automation_mode,login_management_ip_note,publishing_enabled,connection_status) VALUES($1,NULLIF($2,''),$3,COALESCE(NULLIF($4,''),'review'),NULLIF($5,''),false,'not_connected') RETURNING id`,[row.username,row.display_name,groupId,row.automation_mode,row.login_management_ip_note]);results.push({...row,classification:'created',accountId:inserted.rows[0].id});}}
+  let batch;if(prior.rowCount){batch=await client.query(`UPDATE import_batches SET file_name=$2,mode='applied',row_results=$3::jsonb,applied_at=now() WHERE id=$1 RETURNING id`,[prior.rows[0].id,filename,JSON.stringify(results)]);}else batch=await client.query(`INSERT INTO import_batches(file_sha256,file_name,mode,row_results,applied_at) VALUES($1,$2,'applied',$3::jsonb,now()) RETURNING id`,[hash,filename,JSON.stringify(results)]);
+  return {batchId:batch.rows[0].id,rows:results,counts:countRows(results),alreadyApplied:false};
+ });
+}
+function countRows(rows){return rows.reduce((a,r)=>{a[r.classification]=(a[r.classification]||0)+1;return a;},{});}
+export function generateCsvTemplate(){return 'username,display_name,group,automation_mode,timezone,login_management_ip_note\n';}

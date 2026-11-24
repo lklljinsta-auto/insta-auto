@@ -1,0 +1,14 @@
+**
+!package*.json
+!app.js
+!index.html
+!*.css
+!instaauto-mark.svg
+!server.js
+!worker.js
+!src/
+!src/**
+!db/
+!db/**
+!scripts/
+!scripts/**

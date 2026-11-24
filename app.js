@@ -1,371 +1,159 @@
-const STORAGE_KEY = 'instaauto-browser-workspace-v1';
-const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const viewNames = {
-  dashboard: '요약', research: 'Instagram 계정 분석', accounts: '내 운영 계정',
-  compose: '콘텐츠 작성', queue: '콘텐츠 목록', analytics: '성과 기록', settings: '연동 상태'
-};
-const freshState = () => ({ accounts: [], research: [], contents: [] });
-let state = loadState();
-let currentView = 'dashboard';
-let editingAccountId = null;
-let toastTimer;
+const $=(s,r=document)=>r.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nav=[['dashboard','관제 홈'],['accounts','운영 계정'],['content','콘텐츠·예약'],['analysis','외부 계정 분석'],['history','성과·실행 기록'],['settings','설정·연동']];let csrf='',view='dashboard',groups=[],accounts=[],accountPage=1,pendingImport=null;
+function toast(s){const e=$('#toast-root');e.textContent=s;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),3500)}
+async function api(path,opt={}){const headers={'Content-Type':'application/json',...(opt.headers||{})};if(csrf&&opt.method&&opt.method!=='GET')headers['X-CSRF-Token']=csrf;const r=await fetch('/api'+path,{credentials:'include',...opt,headers});if(r.status===401)showLogin();if(r.status===204)return null;let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.error||`HTTP ${r.status}`);return j}
+function showLogin(){csrf='';$('#app').innerHTML=`<main class="auth-wrap"><form id="login-form" class="panel auth-card"><img src="./instaauto-mark.svg" alt="" width="56"><h1>인스타오토 관리자 로그인</h1><p>인증된 관리자만 운영 데이터에 접근할 수 있습니다.</p><label for="email">이메일</label><input autocomplete="username" id="email" class="large-input" type="email" required><label for="password">비밀번호</label><input autocomplete="current-password" id="password" class="large-input" type="password" required><button class="btn btn-primary">로그인</button><p id="login-error" role="alert"></p></form></main>`}
+async function login(e){e.preventDefault();const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({email:$('#email').value,password:$('#password').value})});const j=await r.json();if(!r.ok){$('#login-error').textContent='로그인 정보를 확인해 주세요.';return}csrf=j.csrfToken;await shell()}
+function shell(){ $('#app').innerHTML=`<div class="app-shell"><aside class="sidebar"><a class="brand-row" href="#dashboard"><img class="brand-mark" src="./instaauto-mark.svg"><span class="brand-copy"><strong>인스타오토</strong><small>개인 운영 콘솔</small></span></a><div class="nav-caption">운영 메뉴</div><nav class="primary-nav">${nav.map(([id,n])=>`<button class="nav-item" data-view="${id}">${n}</button>`).join('')}</nav><div class="sidebar-note"><strong>개발 환경</strong><span>데이터는 PostgreSQL에 저장됩니다.</span></div></aside><main class="main-area"><header class="topbar"><div class="breadcrumb"><strong>인스타오토</strong><span>/</span><span id="crumb"></span></div><button class="btn btn-small" id="logout">로그아웃</button></header><section id="root" class="view-root"></section></main></div>`;render()}
+const heading=(t,d)=>`<div class="page-heading"><div><p class="eyebrow">인스타오토 운영</p><h1>${t}</h1><p class="page-description">${d}</p></div></div>`;
+function frame(title,desc,body){return heading(title,desc)+body}
+async function render(){const root=$('#root');if(!root)return;$('#crumb').textContent=nav.find(x=>x[0]===view)?.[1]||'';$$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.view===view));root.innerHTML='<div class="panel section-panel">불러오는 중…</div>';try{if(view==='dashboard'){const d=await api('/dashboard');root.innerHTML=frame('관제 홈','문제 계정과 대기 작업을 먼저 확인합니다.',`<section class="summary-grid">${[['운영 계정',d.stats.accounts],['대기·실행 작업',d.stats.jobs],['문제 작업',d.stats.problems]].map(x=>`<article class="summary-card"><span>${x[0]}</span><strong>${x[1]}<small>건</small></strong></article>`).join('')}</section><div class="panel section-panel"><h2>즉시 조치가 필요한 계정</h2>${d.issues.length?d.issues.map(x=>`<p><b>@${esc(x.profile_handle||'내부 ID')}</b> · ${esc(x.connection_status)} ${esc(x.hold_reason||'')}</p>`).join(''):'<p>현재 확인된 문제 계정이 없습니다.</p>'}</div><div class="panel section-panel"><h2>서버 상태</h2><p>워커: ${d.workers.length?'응답 확인':'미응답'} · 대기 작업 ${d.stats.jobs} · 긴급 정지 ${d.control?.emergency_paused?'켜짐':'꺼짐'}</p><button class="btn ${d.control?.emergency_paused?'':'btn-primary'}" data-action="pause" data-paused="${!d.control?.emergency_paused}">${d.control?.emergency_paused?'운영 재개':'긴급 일시정지'}</button></div><div class="panel section-panel"><h2>예약·보류·실패 작업</h2>${d.scheduled.map(x=>`<p>@${esc(x.profile_handle)} · ${esc(x.status)} · ${esc(x.hold_reason||'예약 대기')}</p>`).join('')||'<p>작업이 없습니다.</p>'}</div>`)}else if(view==='accounts'){pendingImport=null;const [a,g]=await Promise.all([api('/accounts?pageSize=50&page='+accountPage),api('/groups')]);accounts=a.accounts;groups=g.groups;root.innerHTML=frame('운영 계정','계정을 내부 ID로 먼저 등록하고, OAuth 연결은 나중에 계정별로 지정합니다.',`<div class="panel form-panel"><h2>CSV / XLSX 일괄 등록</h2><input id="import-file" type="file" accept=".csv,.xlsx"><button class="btn" data-action="preview-import">가져오기 미리보기</button><div id="import-preview"></div><p><a href="/api/accounts/template.csv">CSV 서식 내려받기</a></p></div><div class="panel form-panel"><h2>운영 계정 등록</h2><form id="account-form"><div class="form-grid"><div><label>Instagram 아이디 (선택)</label><input name="username" class="large-input" placeholder="@계정아이디 또는 비워 두기"></div><div><label>내부 표시 이름</label><input name="displayName" class="large-input" placeholder="내부 식별용 이름"></div><div><label>운영 그룹</label><select name="groupId" class="large-input"><option value="">그룹 없음</option>${groups.map(x=>`<option value="${x.id}">${esc(x.name)} (${x.account_count}/${x.target_size??'목표 없음'})</option>`).join('')}</select></div><div><label>계정별 로그인 IP 메모(선택)</label><input name="loginManagementIpNote" class="large-input"></div></div><button class="btn btn-primary">내부 운영 계정 만들기</button></form></div><div class="panel section-panel"><h2>그룹 추가</h2><form id="group-form"><input name="name" class="large-input" placeholder="그룹 이름" required><input name="targetSize" type="number" min="0" class="large-input" placeholder="목표 계정 수(선택)"><button class="btn">그룹 저장</button></form></div><div class="panel section-panel"><h2>운영 계정 목록 (${a.total})</h2>${a.accounts.map(x=>`<article class="record-card"><div class="record-main"><b>${esc(x.display_name||'운영 계정')} ${x.profile_handle?'@'+esc(x.profile_handle):'(Meta 연결 전)'}</b><span>${esc(x.group_name||'그룹 없음')} · ${esc(x.connection_status)} · ${esc(x.automation_mode)}</span><small>내부 ID: ${x.id}</small>${x.drive_folder_id?driveLink(x.drive_folder_id,'계정 폴더 열기',true):''}<button type="button" class="btn" data-action="edit-account" data-id="${x.id}">설정 수정</button> <button class="btn" type="button" data-action="edit-insights" data-id="${x.id}">성과 수집 설정</button><div data-insight-editor></div>${x.automation_mode==='review'?`<button type="button" class="btn" data-action="toggle-reviewed" data-on="${!x.publishing_enabled}" data-id="${x.id}">${x.publishing_enabled?'승인 게시 끄기':'승인 게시 켜기'}</button>`:''}<button class="btn" type="button" data-action="edit-editorial" data-id="${x.id}">원본·제작 지침</button><div data-editorial></div></div></article>`).join('')||'<p>등록된 운영 계정이 없습니다.</p>'}<div><button class="btn" data-action="prev-page" ${accountPage<=1?'disabled':''}>이전</button> ${accountPage} / ${Math.max(1,Math.ceil(a.total/a.pageSize))} <button class="btn" data-action="next-page" ${accountPage*a.pageSize>=a.total?'disabled':''}>다음</button></div></div>`)}else if(view==='content'){const [a,c,j,archive]=await Promise.all([allAccounts(),api('/contents'),api('/jobs'),api('/archive/files')]);accounts=a.accounts;root.innerHTML=frame('콘텐츠·예약','콘텐츠를 만들고 계정별 파일 보관 상태를 확인합니다.',`<div class="panel form-panel"><h2>콘텐츠 버전 입력</h2><form id="content-form"><label>운영 계정</label><select name="accountId" class="large-input" required>${a.accounts.map(x=>`<option value="${x.id}">${esc(x.display_name||x.profile_handle||x.id)}</option>`).join('')}</select><label>게시 형식</label><select name="finalFormat" class="large-input"><option value="feed_image">피드 이미지</option><option value="carousel">카드/캐러셀</option><option value="reel_mp4">릴스 MP4</option></select><label>콘텐츠 제목</label><input class="large-input" name="title" maxlength="300"><label>캡션 또는 이미지 생성 지시</label><textarea name="caption" class="large-input"></textarea><label>희망 예약 시각 (한국시간 · 최종 파일 승인 후 실행)</label><input name="scheduledAt" class="large-input" type="datetime-local"><label><input name="manual" type="checkbox"> 수동 승인 대상</label><button class="btn btn-primary">저장</button></form></div><div class="panel section-panel"><h2>예약 / 실행 작업</h2>${j.jobs.map(x=>`<article class="record-card"><div class="record-main"><b>@${esc(x.profile_handle||'계정')} · ${esc(x.status)}</b><span>${esc(x.scheduled_at)} · ${esc(x.hold_reason||'')}</span></div>${x.kind==='publish' && x.status==='held' && ['publishing_disabled','account_paused','emergency_pause','meta_connection_missing','meta_app_disabled','meta_publish_adapter_not_enabled','publishing_scope_missing','approved_media_or_account_unavailable'].includes(x.hold_reason)?`<button class="btn" data-action="resume-reviewed" data-id="${x.id}">해결 후 재개</button>`:''}${['queued','held'].includes(x.status)?`<button class="btn" data-action="cancel" data-id="${x.id}">취소</button>`:''}</article>`).join('')||'<p>작업이 없습니다.</p>'}<h2>콘텐츠 기록</h2>${c.contents.map(x=>`<p><b>${esc(x.title||x.caption||'제목 없음')}</b> · ${esc(x.profile_handle)} · ${esc(x.final_format)} · ${esc(x.status)} ${x.caption?`<details><summary>캡션 보기</summary><span class="caption-text">${esc(x.caption)}</span></details>`:''} ${x.version_id?mediaActions(x.version_id)+(x.final_format==='reel_mp4'?renderControls(x.version_id,archive.files):''):''} ${x.version&&!x.approved_at?`${finalAssetSelector(x,archive.files)}<label>예약 시각 (한국시간)<input type="datetime-local" id="when-${x.id}" value="${toKstInput(x.scheduled_at)}"></label><button class="btn" data-action="approve" data-id="${x.id}">승인하고 예약</button>`:''}</p>`).join('')}</div>${archiveFiles(archive.files)}`)}else if(view==='analysis'){const d=await api('/external-analysis');root.innerHTML=frame('외부 계정 분석','분석 대상을 등록합니다. 실제 지표 수집은 Meta 권한과 API 연결 뒤 검증합니다.',`<div class="panel form-panel"><form id="analysis-form"><label>Instagram 아이디·링크 (한 줄에 하나)</label><textarea class="large-input" name="inputs" rows="5"></textarea><button class="btn btn-primary">분석 대상 등록</button></form></div><div class="panel section-panel"><h2>분석 대상</h2>${d.targets.map(x=>`<p>${esc(x.normalized_url)} · ${esc(x.state)} · ${esc(x.reason||'지표 미수집')}</p>`).join('')||'<p>등록된 대상이 없습니다.</p>'}</div>`)}else if(view==='history'){const d=await api('/execution');root.innerHTML=frame('성과·실행 기록','실제 수집된 값과 관리자 조작 기록만 표시합니다.',`<div class="panel section-panel"><h2>지표 스냅샷</h2>${d.metrics.map(x=>`<p>${esc(x.account_name)} · ${esc(insightNames[x.metric_key]||x.metric_key)} ${esc(x.metric_value??'—')} · ${esc(({actual_value:'수집 완료',api_unconnected:'API 미연결',unavailable:'조회 불가',not_collected:'미수집',collection_error:'수집 오류',insufficient_sample:'표본 부족'})[x.data_status]||x.data_status)} · ${esc(x.collected_at)}</p>`).join('')||'<p>성과 데이터 없음. 미수집은 0으로 처리하지 않습니다.</p>'}</div><div class="panel section-panel"><h2>실행·감사 기록</h2>${d.events.map(x=>`<p>${esc(x.event_type)} · ${esc(x.entity_type||'')} · ${esc(x.created_at)}</p>`).join('')||'<p>기록 없음</p>'}</div>`)}else{const [d,drive]=await Promise.all([api('/settings'),api('/archive/status')]);root.innerHTML=frame('설정·연동','외부 자격증명은 서버 환경변수/시크릿 참조로만 설정합니다. Meta 승인 전 연결 상태는 미연결입니다.',`<div class="panel section-panel"><h2>Meta 앱 등록 (Unified Login)</h2><form id="meta-form"><input class="large-input" name="displayName" placeholder="앱 표시 이름" required><input class="large-input" name="appId" placeholder="Meta App ID" required><input class="large-input" name="oauthConfigId" placeholder="Facebook Login for Business config ID"><input class="large-input" name="redirectUri" placeholder="등록된 HTTPS OAuth redirect URI" required><input class="large-input" name="secretRef" placeholder="Secret 환경변수 이름 (값은 입력하지 않음)"><button class="btn">메타 앱 설정 저장</button></form>${d.metaApps.map(x=>`<p>${esc(x.display_name)} · ${esc(x.app_id)} · Secret ${x.secretConfigured?'설정됨':'미설정'} · ${esc(x.review_status)}</p>`).join('')}</div><div class="panel section-panel"><h2>연동 상태</h2><p>Meta: ${d.adapters.meta?'설정 후보 존재':'미설정'} · AI: ${d.adapters.ai?'설정됨':'미설정'} · 저장소: ${d.adapters.objectStorage?'설정됨':'미설정'}</p></div>${driveSettings(drive)}`)} }catch(e){root.innerHTML=frame('불러오기 오류',esc(e.message),'<p>잠시 후 다시 시도하세요.</p>')}}
+function $$(s,r=document){return [...r.querySelectorAll(s)]}
+document.addEventListener('submit',async e=>{e.preventDefault();try{const f=e.target,d=Object.fromEntries(new FormData(f));if(f.id==='login-form')return await login(e);if(f.id==='account-form'){const editing=f.dataset.accountId;const r=await api(editing?'/accounts/'+editing:'/accounts',{method:editing?'PATCH':'POST',body:JSON.stringify({username:d.username,displayName:d.displayName,groupId:d.groupId,loginManagementIpNote:d.loginManagementIpNote})});toast(`저장 완료 · 내부 ID ${r.id}`)}if(f.id==='group-form'){await api('/groups',{method:'POST',body:JSON.stringify({name:d.name,targetSize:d.targetSize})});toast('그룹 저장 완료')}if(f.id==='content-form'){const when=d.scheduledAt?new Date(d.scheduledAt+'+09:00').toISOString():null;const r=await api('/contents',{method:'POST',body:JSON.stringify({accountId:d.accountId,finalFormat:d.finalFormat,title:d.title,caption:d.caption,scheduledAt:when,manual:Boolean(when)||f.elements.manual.checked,timezone:'Asia/Seoul'})});toast('콘텐츠와 예약 상태를 저장했습니다. 외부 게시 성공으로 표시하지 않습니다.')}if(f.id==='analysis-form'){const inputs=d.inputs.split(/[\n,]+/).map(x=>x.trim()).filter(Boolean);const r=await api('/external-analysis',{method:'POST',body:JSON.stringify({inputs})});toast(`분석 대상 ${r.registered.length}개 등록, 통계는 미수집`)}if(f.id==='meta-form'){await api('/settings/meta-apps',{method:'POST',body:JSON.stringify(d)});toast('Meta 앱 설정 저장 완료. 실제 연결은 별도 OAuth 동의 전까지 미연결입니다.')}render()}catch(e){toast('실패: '+e.message)}});
+document.addEventListener('click',async e=>{const n=e.target.closest('[data-view]');if(n){view=n.dataset.view;render();return}const b=e.target.closest('[data-action]');if(!b)return;try{if(b.dataset.action==='toggle-reviewed'){
+  await api('/accounts/'+b.dataset.id,{method:'PATCH',body:JSON.stringify({publishingEnabled:b.dataset.on==='true',automationMode:'review'})});
+  await render();return;
+}
+if(b.dataset.action==='resume-reviewed'){
+  await api('/jobs/'+b.dataset.id+'/resume-reviewed',{method:'POST',body:'{}'});await render();return;
+}
+if(b.dataset.action==='edit-editorial'){await openEditorial(b);return}
+if(b.dataset.action==='save-editorial'){await saveEditorial(b);return}
+if(b.dataset.action==='edit-insights'){await editInsights(b);return}
+if(b.dataset.action==='save-insights'){await saveInsights(b);return}
+if(b.dataset.action==='edit-account'){editAccount(b.dataset.id);return}
+if(b.dataset.action==='next-page')accountPage++;
+if(b.dataset.action==='prev-page')accountPage=Math.max(1,accountPage-1);
+if(b.dataset.action==='connect-drive'){const c=await api('/archive/connect',{method:'POST',body:'{}'});location.assign(c.url);return}
+if(b.dataset.action==='render-reel'){const form=b.closest('[data-render]');const value=n=>form.querySelector('[name="'+n+'"]').value;
+  await api('/content-versions/'+b.dataset.id+'/render',{method:'POST',body:JSON.stringify({picture:value('picture'),music:value('music'),captions:value('captions'),seconds:Number(value('seconds'))})});toast('릴스 합성 예약 완료')}
+if(b.dataset.action==='generate-image'){b.disabled=true;try{const job=await api('/content-versions/'+b.dataset.id+'/image',{method:'POST',body:'{}'});toast(job.status==='queued'?'서버에 이미지 생성 작업을 예약했습니다.':'이미지 작업 상태 · '+(job.hold_reason||job.status))}finally{b.disabled=false}}
+if(b.dataset.action==='attach-media'){await attachMedia(b);toast('파일 보관 요청 완료')}
+if(b.dataset.action==='pause')await api('/system/pause',{method:'POST',body:JSON.stringify({paused:b.dataset.paused==='true',reason:'admin_ui'})});if(b.dataset.action==='cancel')await api(`/jobs/${b.dataset.id}/cancel`,{method:'POST',body:'{}'});if(b.dataset.action==='approve'){const d=document.getElementById('when-'+b.dataset.id)?.value;if(!d)throw Error('한국시간 예약 시각을 선택하세요.');await api(`/contents/${b.dataset.id}/approve`,{method:'POST',body:JSON.stringify({scheduledAt:new Date(d+'+09:00').toISOString(),timezone:'Asia/Seoul',assetId:document.getElementById('final-'+b.dataset.id)?.value||null})})}if(b.dataset.action==='preview-import'){const f=$('#import-file').files[0];if(!f)throw Error('파일을 먼저 선택하세요');const base64=await new Promise((resolve,reject)=>{const rd=new FileReader();rd.onload=()=>resolve(rd.result.split(',')[1]);rd.onerror=reject;rd.readAsDataURL(f)});const p=await api('/accounts/import',{method:'POST',body:JSON.stringify({filename:f.name,base64,action:'preview'})});pendingImport={filename:f.name,base64};$('#import-preview').innerHTML=`<p>행 ${p.rows.length} · ${esc(JSON.stringify(p.counts))}</p><button class="btn btn-primary" data-action="apply-import">이 미리보기 적용</button>`;return}if(b.dataset.action==='apply-import'){if(!pendingImport)return;const p=await api('/accounts/import',{method:'POST',body:JSON.stringify({...pendingImport,action:'apply'})});toast(`가져오기 완료 · ${JSON.stringify(p.counts)}`)}render()}catch(e){toast('실패: '+e.message)}});
+document.addEventListener('click',async e=>{if(e.target.id==='logout'){try{await api('/auth/logout',{method:'POST',body:'{}'})}finally{showLogin()}}});
+window.addEventListener('DOMContentLoaded',async()=>{try{const s=await api('/auth/session');csrf=s.csrfToken;if(location.hash==='#settings')view='settings';await shell()}catch{showLogin()}});
 
-function loadState() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    return {
-      accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
-      research: Array.isArray(parsed.research) ? parsed.research : [],
-      contents: Array.isArray(parsed.contents) ? parsed.contents : []
-    };
-  } catch {
-    return freshState();
+async function allAccounts() {
+  const first=await api('/accounts?pageSize=100');
+  for(let page=2;(page-1)*100<first.total;page++) {
+    const next=await api('/accounts?pageSize=100&page='+page);
+    first.accounts.push(...next.accounts);
   }
+  return first;
+}
+function editAccount(id) {
+  const account=accounts.find(x=>x.id===id), f=$('#account-form');
+  if(!account || !f)return;
+  f.dataset.accountId=id;
+  f.elements.username.value=account.profile_handle||'';
+  f.elements.displayName.value=account.display_name||'';
+  f.elements.groupId.value=account.group_id||'';
+  f.elements.loginManagementIpNote.value=account.login_management_ip_note||'';
+  f.querySelector('button').textContent='변경사항 저장';
+  f.elements.displayName.focus();
+}
+function driveLink(id,label,folder=false) {
+  const base=folder?'https://drive.google.com/drive/folders/':'https://drive.google.com/open?id=';
+  return '<a target="_blank" rel="noreferrer" href="'+base+encodeURIComponent(id)+'">'+esc(label)+'</a>';
+}
+function driveSettings(drive) {
+  const status=drive.credentialConfigured?'자격증명 설정됨':'미연결';
+  return '<section class="panel section-panel"><h2>Google Drive 보관</h2><p>'+status+
+    ' · 대기 '+drive.waiting+'건 · 보관 검증 '+drive.verified+'건 · 폴더 오류 '+drive.folder_errors+'건</p>'+
+    (drive.root_id?driveLink(drive.root_id,'보관 폴더 열기',true)+' ':'')+
+    (drive.canConnect?'<button class="btn" data-action="connect-drive">Google Drive 연결</button>':
+    '<p>연결하려면 서버에 Google OAuth 클라이언트와 콜백 주소를 설정하세요.</p>')+'</section>';
+}
+function archiveFiles(files) {
+  const states={pending:'보관 대기',verified:'Drive 보관 확인',retryable_error:'재시도 대기',unknown_result:'결과 확인 중'};
+  return '<section class="panel section-panel"><h2>계정별 파일 보관</h2>'+
+    (files.map(f=>'<p>'+esc(f.profile_handle||'계정')+' · '+esc(f.filename)+' · '+esc(states[f.state]||f.state)+
+      (f.last_error_code?' · '+esc(f.last_error_code):'')+' <a href="/api/archive/files/'+encodeURIComponent(f.asset_id)+'/download">파일 내려받기</a> '+(f.drive_file_id?driveLink(f.drive_file_id,'파일 열기'):'')+'</p>').join('')||'<p>보관을 요청한 파일이 없습니다.</p>')+'</section>';
+}
+function mediaActions(id) {
+  return '<span><label>제작 파일 <input type="file" data-file-for="'+esc(id)+'"></label> '+
+    '<button class="btn" data-action="attach-media" data-id="'+esc(id)+'">파일 보관</button> '+
+    '<button class="btn" data-action="generate-image" data-id="'+esc(id)+'">설정한 AI로 이미지 생성 (유료)</button></span>';
+}
+async function attachMedia(button) {
+  const id=button.dataset.id;
+  const file=document.querySelector('[data-file-for="'+id+'"]').files[0];
+  if(!file)throw Error('보관할 제작 파일을 선택하세요.');
+  const slot='manual';
+  const fallback={srt:'application/x-subrip',vtt:'text/vtt',mp4:'video/mp4',wav:'audio/wav'};
+  const extension=file.name.split('.').pop().toLowerCase();
+  const mime=fallback[extension]||file.type||'application/octet-stream';
+  const response=await fetch('/api/content-versions/'+id+'/assets?slot='+slot,{
+    method:'POST',credentials:'include',headers:{'Content-Type':mime,'X-CSRF-Token':csrf},body:file});
+  if(!response.ok)throw Error((await response.json()).error||'파일 저장 실패');
+}
+function renderControls(id,allFiles) {
+  const files=allFiles.filter(f=>f.content_version_id===id);
+  const options=items=>items.map(f=>'<option value="'+esc(f.asset_id)+'">'+esc(f.filename)+'</option>').join('');
+  const images=files.filter(f=>/^(image|video)\//.test(f.mime_type));
+  const music=files.filter(f=>f.mime_type.startsWith('audio/'));
+  if(!images.length || !music.length)return '<span>릴스 합성에 사용할 이미지 또는 영상과 음원을 먼저 보관하세요.</span>';
+  return '<span data-render><label>이미지 또는 영상 <select name="picture">'+options(images)+'</select></label> '+
+    '<label>사용 권리가 있는 음원 <select name="music">'+options(music)+'</select></label> '+
+    '<label>자막 <select name="captions"><option value="">없음</option>'+
+    options(files.filter(f=>['application/x-subrip','text/vtt'].includes(f.mime_type)))+'</select></label> '+
+    '<label>길이(초) <input type="number" name="seconds" value="15" min="1" max="180"></label> '+
+    '<button class="btn" data-action="render-reel" data-id="'+esc(id)+'">릴스 MP4 합성</button></span>';
 }
 
-function persist() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    return true;
-  } catch {
-    toast('브라우저 저장 공간에 기록하지 못했습니다. 입력 내용을 복사해 보관해 주세요.');
-    return false;
-  }
+function finalAssetSelector(item,files){
+  const mime=item.final_format==='feed_image'?'image/jpeg':item.final_format==='reel_mp4'?'video/mp4':null;
+  const choices=files.filter(f=>f.content_version_id===item.version_id && f.mime_type===mime);
+  if(!choices.length) return '';
+  const id='final-'+esc(item.id);
+  return '<label for="'+id+'">게시할 최종 파일</label><select class="large-input" id="'+id+'">'+
+    choices.map(f=>'<option value="'+esc(f.asset_id)+'">'+esc(f.filename)+'</option>').join('')+'</select>';
 }
 
-function toast(message) {
-  const node = $('#toast-root');
-  node.textContent = message;
-  node.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => node.classList.remove('show'), 3600);
+const insightNames={reach:'도달',saved:'저장',shares:'공유'};
+async function editInsights(button){
+  const panel=button.closest('article').querySelector('[data-insight-editor]');
+  if(panel.childElementCount){panel.replaceChildren();return;}
+  const setting=await api('/accounts/'+button.dataset.id+'/insights');
+  const keys=setting.metrics||[];
+  panel.innerHTML='<fieldset><legend>이 계정의 다음 게시물부터 적용</legend>'+
+    '<label><input type="checkbox" name="enabled" '+(keys.length?'checked':'')+'> 성과 자동 수집</label>'+
+    '<label>게시 후 대기시간(분)<input class="large-input" type="number" min="1" step="1" name="delay" value="'+esc(setting.delay_minutes??'')+'"></label>'+
+    Object.entries(insightNames).map(([key,label])=>'<label><input name="metric" type="checkbox" value="'+key+'" '+(keys.includes(key)?'checked':'')+'> '+label+'</label>').join(' ')+
+    ' <button class="btn" type="button" data-action="save-insights" data-id="'+esc(button.dataset.id)+'">성과 설정 저장</button></fieldset>';
+}
+async function saveInsights(button){
+  const box=button.closest('fieldset');
+  const enabled=box.querySelector('[name=enabled]').checked;
+  const delayMinutes=Number(box.querySelector('[name=delay]').value);
+  const metrics=[...box.querySelectorAll('[name=metric]:checked')].map(e=>e.value);
+  if(enabled && (!Number.isSafeInteger(delayMinutes)||delayMinutes<1||!metrics.length))
+    throw Error('대기시간(분)과 수집할 지표를 입력해 주세요.');
+  await api('/accounts/'+button.dataset.id+'/insights',{method:'PUT',body:JSON.stringify({enabled,delayMinutes,metrics})});
+  button.closest('[data-insight-editor]').replaceChildren();
+  toast('성과 수집 설정을 저장했습니다.');
 }
 
-function button(label, action, primary = false, extra = '') {
-  return `<button class="btn ${primary ? 'btn-primary' : ''}" data-action="${action}" ${extra}>${label}</button>`;
+function toKstInput(instant) {
+  return instant ? new Date(new Date(instant).getTime()+9*3600000).toISOString().slice(0,16) : '';
 }
-
-function heading(title, description, actions = '') {
-  return `<div class="page-heading"><div><p class="eyebrow">인스타오토</p><h1>${title}</h1><p class="page-description">${description}</p></div>${actions ? `<div class="heading-actions">${actions}</div>` : ''}</div>`;
+const editorialLabels={topic:'주제',audience:'대상 독자',voice:'말투',avoid:'금지 표현',
+  feed:'피드 제작 지침',reel:'릴스 제작 지침',references:'참고 원본 주소 (한 줄에 하나씩)'};
+async function openEditorial(button) {
+  const panel=button.closest('article').querySelector('[data-editorial]');
+  if(panel.childElementCount){panel.replaceChildren();return;}
+  const data=await api('/accounts/'+button.dataset.id+'/editorial');
+  panel.dataset.version=data.version;
+  panel.innerHTML='<fieldset><legend>이 계정 전용 원본과 제작 지침</legend>'+
+    Object.entries(editorialLabels).map(([key,label])=>'<label for="guide-'+button.dataset.id+'-'+key+'">'+label+'</label>'+
+      '<textarea id="guide-'+button.dataset.id+'-'+key+'" name="'+key+'" class="large-input" maxlength="6000">'+esc(data.editorial[key])+'</textarea>').join('')+
+    '<button class="btn" type="button" data-action="save-editorial" data-id="'+esc(button.dataset.id)+'">지침 저장</button></fieldset>';
 }
-
-function infoBox(title, text, kind = 'notice') {
-  return `<div class="info-box ${kind}"><strong>${title}</strong><p>${text}</p></div>`;
+async function saveEditorial(button) {
+  const panel=button.closest('[data-editorial]');
+  const editorial=Object.fromEntries([...panel.querySelectorAll('textarea')].map(x=>[x.name,x.value]));
+  await api('/accounts/'+button.dataset.id+'/editorial',{method:'PUT',
+    body:JSON.stringify({editorial,version:Number(panel.dataset.version)})});
+  panel.replaceChildren();
+  toast('이 계정의 원본과 제작 지침을 저장했습니다.');
 }
-
-function emptyState(title, detail, action = '') {
-  return `<div class="empty-state"><span class="empty-mark" aria-hidden="true">＋</span><h2>${title}</h2><p>${detail}</p>${action}</div>`;
-}
-
-function dashboardPage() {
-  const counts = [
-    ['내 운영 계정', state.accounts.length, '개'],
-    ['분석 대상', state.research.length, '개'],
-    ['저장한 콘텐츠', state.contents.length, '개']
-  ];
-  return `${heading('운영 현황', '인스타오토', '실제 입력한 내용만 표시합니다. 아직 연결된 Instagram 계정이나 수집된 통계는 없습니다.')}
-    ${infoBox('사이트 공개 안내', '현재 GitHub Pages 주소는 공개되어 있습니다. 이 사이트에 입력하는 내용은 GitHub에 올라가지 않고 현재 브라우저의 로컬 저장소에만 저장됩니다. 민감한 정보나 비밀번호, API 키는 입력하지 마세요.', 'warning')}
-    <section class="summary-grid" aria-label="현재 입력된 항목">${counts.map(([label, value, unit]) => `<article class="summary-card"><span>${label}</span><strong>${value}<small>${unit}</small></strong></article>`).join('')}</section>
-    <section class="panel section-panel"><div class="panel-heading"><div><h2>먼저 할 일</h2><p>입력 목록은 이 브라우저 안에서만 유지됩니다.</p></div></div>
-      <div class="action-grid">
-        <button class="action-card" data-view="research"><span class="action-icon">⌕</span><strong>Instagram 계정 분석</strong><span>여러 프로필 주소나 아이디를 입력해 분석 대상으로 관리합니다.</span></button>
-        <button class="action-card" data-view="accounts"><span class="action-icon">◎</span><strong>내 운영 계정 추가</strong><span>계정별 링크와 피드·릴스 지침을 따로 입력합니다.</span></button>
-        <button class="action-card" data-view="compose"><span class="action-icon">＋</span><strong>콘텐츠 초안 작성</strong><span>실제 입력한 원본 링크와 계정별 지침으로 초안을 기록합니다.</span></button>
-      </div>
-    </section>
-    ${infoBox('현재 기능 범위', 'Instagram 공식 API, 서버 저장, 자동 분석, AI 생성, 예약 게시, 실제 게시, Drive 연동은 아직 연결되지 않았습니다. 통계와 계정 상태를 임의로 채우지 않습니다.', 'warning')}`;
-}
-
-function parseInstagramTarget(raw, allowMedia = true) {
-  const value = raw.trim();
-  if (!value) return null;
-  let url;
-  if (/^https?:\/\//i.test(value)) {
-    try { url = new URL(value); } catch { return null; }
-  } else if (/^(www\.)?instagram\.com\//i.test(value)) {
-    try { url = new URL(`https://${value}`); } catch { return null; }
-  }
-
-  if (url) {
-    if (!/(^|\.)instagram\.com$/i.test(url.hostname)) return null;
-    const segments = url.pathname.split('/').filter(Boolean);
-    if (!segments.length) return null;
-    const reserved = new Set(['p', 'reel', 'reels', 'tv', 'stories', 'explore', 'accounts', 'direct', 'about']);
-    const first = segments[0].toLowerCase();
-    if (reserved.has(first)) {
-      if (!allowMedia || !['p', 'reel', 'reels', 'tv'].includes(first)) return null;
-      return { input: value, profile: null, href: `https://www.instagram.com${url.pathname}`, kind: '게시물 링크' };
-    }
-    const username = segments[0].replace(/^@/, '');
-    if (!/^[A-Za-z0-9._]{1,30}$/.test(username)) return null;
-    return { input: value, profile: username, href: `https://www.instagram.com/${encodeURIComponent(username)}/`, kind: '프로필 링크' };
-  }
-
-  const username = value.replace(/^@/, '');
-  if (!/^[A-Za-z0-9._]{1,30}$/.test(username)) return null;
-  return { input: value, profile: username, href: `https://www.instagram.com/${encodeURIComponent(username)}/`, kind: '아이디' };
-}
-
-function safeExternalLink(value) {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) return '';
-  try {
-    const url = new URL(trimmed);
-    return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
-  } catch {
-    return null;
-  }
-}
-
-function researchPage() {
-  const list = state.research.length ? `<div class="record-list">${state.research.map((item) => `
-    <article class="record-card">
-      <div class="record-main"><span class="record-type">${escapeHtml(item.kind)}</span><strong>${escapeHtml(item.profile ? `@${item.profile}` : item.input)}</strong><a href="${escapeHtml(item.href)}" target="_blank" rel="noopener noreferrer">Instagram에서 열기 ↗</a></div>
-      <div class="record-state"><span class="state-chip">통계 미수집</span><span>수집 기능 미연결</span></div>
-      <button class="btn btn-small" data-action="remove-research" data-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.input)} 삭제">삭제</button>
-    </article>`).join('')}</div>` : emptyState('등록된 분석 대상이 없습니다', 'Instagram 프로필 주소나 아이디를 입력하면 여기에 저장됩니다. 아직 통계 수집 API가 연결되지 않아 실제 수치는 표시할 수 없습니다.');
-  return `${heading('Instagram 계정 분석', '여러 계정을 한 번에 등록하고 관리합니다.', '계정 유형을 먼저 선택할 필요 없이 프로필 링크, 게시물 링크 또는 아이디를 입력할 수 있습니다.')}
-    ${infoBox('통계 수집은 아직 연결되지 않았습니다', '이 페이지는 입력 목록만 이 브라우저에 저장합니다. Instagram의 공식 API 또는 허용된 공개 데이터 수집 경로가 연결되기 전에는 게시 빈도, 조회수, 좋아요, 댓글, 평균·중앙값을 가져오지 않으며 임의의 분석 결과도 만들지 않습니다. 로그인 세션을 이용한 무단 수집은 하지 않습니다.', 'warning')}
-    <section class="panel form-panel"><form id="research-form">
-      <label for="research-input">분석할 Instagram 주소 또는 아이디</label>
-      <textarea id="research-input" class="large-input" rows="5" placeholder="한 줄에 하나씩 입력\nhttps://www.instagram.com/계정아이디/\n@계정아이디" required></textarea>
-      <p class="field-help">여러 개를 줄바꿈이나 쉼표로 구분해 입력할 수 있습니다. 비즈니스·크리에이터 여부를 요구하지 않습니다.</p>
-      <div class="form-actions"><button class="btn btn-primary" type="submit">분석 대상 목록에 등록</button></div>
-    </form></section>
-    <section class="panel section-panel"><div class="panel-heading"><div><h2>분석 대상</h2><p>실제 수집이 완료된 지표만 추후 여기에 표시합니다.</p></div><span class="count-chip">${state.research.length}개</span></div>${list}</section>`;
-}
-
-function accountFields(account = {}) {
-  return `<input type="hidden" name="id" value="${escapeHtml(account.id || '')}">
-    <div class="form-grid">
-      <div class="form-field"><label for="account-link">Instagram 계정 아이디 또는 프로필 링크</label><input id="account-link" class="large-input" name="profile" value="${escapeHtml(account.profile || '')}" placeholder="@계정아이디 또는 프로필 주소" required></div>
-      <div class="form-field"><label for="account-name">내부에서 부를 이름</label><input id="account-name" class="large-input" name="name" value="${escapeHtml(account.name || '')}" placeholder="선택 입력"></div>
-      <div class="form-field"><label for="account-topic">주제·프로필 지침</label><textarea class="large-input" name="topic" rows="3" placeholder="이 계정에서 다룰 주제">${escapeHtml(account.topic || '')}</textarea></div>
-      <div class="form-field"><label for="account-audience">대상 독자와 말투</label><textarea class="large-input" name="audience" rows="3" placeholder="대상 독자, 어조, 표현 방식">${escapeHtml(account.audience || '')}</textarea></div>
-      <div class="form-field full-width"><label>이 계정 전용 참고 링크</label><textarea class="large-input" name="references" rows="3" placeholder="이 계정 콘텐츠에 참고할 뉴스 또는 Instagram 주소를 한 줄에 하나씩">${escapeHtml((account.references || []).join('\n'))}</textarea><p class="field-help">여기에 입력한 링크는 다른 계정에 복사되지 않습니다.</p></div>
-      <div class="form-field full-width"><label>피드 전용 프롬프트</label><textarea class="large-input" name="feedPrompt" rows="3" placeholder="피드 이미지·카드 콘텐츠 생성 지침">${escapeHtml(account.feedPrompt || '')}</textarea></div>
-      <div class="form-field full-width"><label>릴스 전용 프롬프트</label><textarea class="large-input" name="reelsPrompt" rows="3" placeholder="릴스 영상·내레이션 콘텐츠 생성 지침">${escapeHtml(account.reelsPrompt || '')}</textarea></div>
-    </div>
-    <div class="form-actions"><button class="btn btn-primary" type="submit">${account.id ? '계정 설정 저장' : '운영 계정 등록'}</button>${account.id ? '<button class="btn" type="button" data-action="cancel-account-edit">새 계정 입력</button>' : ''}</div>`;
-}
-
-function accountsPage() {
-  const list = state.accounts.length ? `<div class="record-list">${state.accounts.map((account) => `<article class="record-card account-record"><div class="record-main"><span class="record-type">내 운영 계정</span><strong>${escapeHtml(account.name || `@${account.profile}`)}</strong><span class="plain-handle">@${escapeHtml(account.profile)}</span><span class="status-text">Meta 계정 연결 안 됨 · 게시 기능 꺼짐</span></div><div class="record-actions"><button class="btn btn-small" data-action="edit-account" data-id="${escapeHtml(account.id)}">수정</button><button class="btn btn-small" data-action="remove-account" data-id="${escapeHtml(account.id)}">삭제</button></div></article>`).join('')}</div>` : emptyState('운영 계정이 없습니다', '계정 아이디를 직접 등록하세요. 비밀번호나 로그인 코드는 여기에 입력하지 마세요.');
-  const editing = state.accounts.find((account) => account.id === editingAccountId);
-  return `${heading('내 운영 계정', '계정별 프로필과 지침을 관리합니다.', '한 계정의 원본 링크와 피드·릴스 프롬프트는 해당 계정에만 저장됩니다.')}
-    ${infoBox('현재는 설정 입력·저장만 가능합니다', '등록 정보는 이 브라우저에만 저장됩니다. Meta 로그인, 게시 권한, 서버 저장은 아직 연결되지 않았습니다. 계정 비밀번호·인증코드·API 키는 입력하지 마세요.', 'warning')}
-    <section class="panel form-panel"><div class="panel-heading"><div><h2>${editing ? '계정 설정 수정' : '운영 계정 등록'}</h2><p>최대 100개까지 계정 프로필을 준비할 수 있습니다. 이 화면에서 실제 Instagram 연결은 이루어지지 않습니다.</p></div><span class="count-chip">${state.accounts.length} / 100</span></div><form id="account-form">${accountFields(editing || {})}</form></section>
-    <section class="panel section-panel"><div class="panel-heading"><div><h2>등록된 계정</h2><p>이 브라우저에 저장한 계정만 나열합니다.</p></div></div>${list}</section>`;
-}
-
-function composePage() {
-  const options = state.accounts.map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name || `@${account.profile}`)} (@${escapeHtml(account.profile)})</option>`).join('');
-  const noAccounts = state.accounts.length === 0;
-  return `${heading('콘텐츠 작성', '실제 원본으로 콘텐츠 초안을 기록합니다.', '저장한 초안은 현재 브라우저 안에서만 보관됩니다. 자동 생성이나 게시 요청은 실행하지 않습니다.')}
-    ${noAccounts ? emptyState('운영 계정을 먼저 등록해 주세요', '계정별로 서로 다른 참고 링크와 프롬프트를 저장한 다음 초안을 작성할 수 있습니다.', button('내 운영 계정 등록', 'go-accounts')) : ''}
-    ${infoBox('AI 생성·게시 연결 전', '원본 링크, 제목, 캡션과 게시 형식을 로컬 초안으로 저장할 수 있습니다. 실제 이미지·영상·음악 생성, 예약, Instagram 게시 기능은 연결되지 않았습니다.', 'warning')}
-    <section class="panel form-panel"><form id="content-form">
-      <div class="form-field"><label for="content-account">사용할 운영 계정</label><select id="content-account" class="large-input" name="accountId" ${noAccounts ? 'disabled' : ''} required><option value="">계정 선택</option>${options}</select></div>
-      <div class="form-field"><label for="content-type">콘텐츠 형식</label><select id="content-type" class="large-input" name="type"><option value="feed">피드</option><option value="reels">릴스</option></select><span class="field-help">저장된 계정의 해당 형식 전용 프롬프트를 참고 지침으로 표시합니다.</span></div>
-      <section class="guidance-box" id="account-guidance" aria-live="polite"><strong>계정별 제작 지침</strong><p>운영 계정을 선택하면 해당 계정의 참고 링크와 피드·릴스 지침이 여기에 표시됩니다.</p></section>
-      <div class="form-field"><label for="content-source">이 계정에 사용할 원본 링크</label><input id="content-source" class="large-input" name="source" type="url" placeholder="https://..."></div>
-      <div class="form-field"><label for="content-title">초안 제목</label><input id="content-title" class="large-input" name="title" maxlength="120" placeholder="직접 입력" required></div>
-      <div class="form-field"><label for="content-caption">캡션 또는 제작 메모</label><textarea id="content-caption" class="large-input" name="caption" rows="6" placeholder="직접 입력"></textarea></div>
-      <div class="form-actions"><button class="btn btn-primary" type="submit" ${noAccounts ? 'disabled' : ''}>초안 저장</button></div>
-    </form></section>`;
-}
-
-function queuePage() {
-  const records = state.contents.length ? `<div class="record-list">${state.contents.map((item) => {
-    const account = state.accounts.find((entry) => entry.id === item.accountId);
-    return `<article class="record-card"><div class="record-main"><span class="record-type">${item.type === 'reels' ? '릴스' : '피드'} 초안 · ${escapeHtml(account?.name || (account ? `@${account.profile}` : '계정 삭제됨'))}</span><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.savedAt)}</span>${item.source ? `<a href="${escapeHtml(item.source)}" target="_blank" rel="noopener noreferrer">원본 링크 열기 ↗</a>` : ''}</div><div class="record-actions"><span class="state-chip">브라우저 저장</span><button class="btn btn-small" data-action="remove-content" data-id="${escapeHtml(item.id)}">삭제</button></div></article>`;
-  }).join('')}</div>` : emptyState('저장된 콘텐츠가 없습니다', '사용자가 작성한 초안만 여기에 표시됩니다.', button('콘텐츠 작성', 'go-compose'));
-  return `${heading('콘텐츠 목록', '작성한 초안을 확인합니다.', '예약 실행이나 게시 완료로 표시되는 임의 데이터는 없습니다.')}
-    ${infoBox('예약 실행은 아직 사용할 수 없습니다', 'GitHub Pages는 정적 웹 호스팅이라 사이트를 닫은 뒤에도 실행되는 예약 작업이나 서버 저장을 제공하지 않습니다. 지금은 초안 저장만 지원합니다.', 'warning')}
-    <section class="panel section-panel"><div class="panel-heading"><div><h2>저장된 초안</h2></div><span class="count-chip">${state.contents.length}개</span></div>${records}</section>`;
-}
-
-function analyticsPage() {
-  return `${heading('성과 기록', '수집된 Instagram 성과만 표시합니다.', '아직 연결된 계정과 수집 데이터가 없으므로 성과 수치를 표시하지 않습니다.')}
-    ${infoBox('성과 분석 API 미연결', '게시물 조회수·좋아요·댓글과 기간별 평균·중앙값을 계산하려면 실제 계정 권한과 지원되는 Meta 인사이트 API 연결이 필요합니다. 공개 타 계정 분석 지표는 확보 가능한 범위가 다를 수 있습니다.', 'warning')}
-    ${emptyState('성과 데이터가 없습니다', '실제로 수집한 원본 기록이 생기면 그 값으로만 요약합니다.')}`;
-}
-
-function settingsPage() {
-  const rows = [
-    ['호스팅', 'GitHub Pages', '사이트는 공개 상태입니다.'],
-    ['GitHub 저장소', '공개 저장소', '코드와 설정 파일은 누구나 볼 수 있습니다.'],
-    ['서버·데이터베이스', '연결 안 됨', '계정 정보는 이 브라우저에만 저장됩니다.'],
-    ['Instagram·Meta API', '연결 안 됨', '계정 조회·게시·인사이트 수집은 비활성입니다.'],
-    ['AI 제공자', '연결 안 됨', '이미지·영상·음악·문구 생성은 실행되지 않습니다.'],
-    ['Google Drive', '연결 안 됨', '파일 업로드와 보관은 아직 사용할 수 없습니다.'],
-    ['국내 고정 IP·예약 실행 서버', '연결 안 됨', '게시 작업을 실행할 서버가 없습니다.']
-  ];
-  return `${heading('연동 상태', '현재 실제 연결 상태를 확인합니다.', '연결이 되지 않은 항목을 준비 완료로 표시하지 않습니다.')}
-    ${infoBox('공개 사이트 주의', '현재 사이트와 저장소가 공개되어 있습니다. 입력 목록과 초안은 이 브라우저의 로컬 저장소에만 기록되지만, 누구나 코드와 화면을 볼 수 있습니다. 비밀번호, 토큰, API 키 또는 민감한 개인 정보를 입력하지 마세요.', 'warning')}
-    <section class="panel section-panel"><div class="panel-heading"><div><h2>연동 현황</h2><p>실제 연결 여부만 표시합니다.</p></div></div><div class="integration-list">${rows.map(([label, status, detail]) => `<div class="integration-row"><strong>${label}</strong><span class="state-chip">${status}</span><p>${detail}</p></div>`).join('')}</div></section>`;
-}
-
-function render() {
-  const pages = { dashboard: dashboardPage, research: researchPage, accounts: accountsPage, compose: composePage, queue: queuePage, analytics: analyticsPage, settings: settingsPage };
-  $('#view-root').innerHTML = (pages[currentView] || dashboardPage)();
-  $('#crumb-current').textContent = viewNames[currentView] || viewNames.dashboard;
-  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === currentView));
-  if (currentView === 'compose') {
-    $('#content-account')?.addEventListener('change', updateComposeGuidance);
-    $('#content-type')?.addEventListener('change', updateComposeGuidance);
-    updateComposeGuidance();
-  }
-}
-
-function updateComposeGuidance() {
-  const panel = $('#account-guidance');
-  const accountId = $('#content-account')?.value;
-  const type = $('#content-type')?.value || 'feed';
-  if (!panel) return;
-  const account = state.accounts.find((entry) => entry.id === accountId);
-  if (!account) {
-    panel.innerHTML = '<strong>계정별 제작 지침</strong><p>운영 계정을 선택하면 해당 계정의 참고 링크와 피드·릴스 지침이 여기에 표시됩니다.</p>';
-    return;
-  }
-  const promptLabel = type === 'reels' ? '릴스 프롬프트' : '피드 프롬프트';
-  const prompt = type === 'reels' ? account.reelsPrompt : account.feedPrompt;
-  const references = (account.references || []).map((reference) => {
-    const href = safeExternalLink(reference);
-    return href
-      ? `<li><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(reference)}</a></li>`
-      : `<li>${escapeHtml(reference)}</li>`;
-  }).join('');
-  panel.innerHTML = `<strong>${escapeHtml(account.name || `@${account.profile}`)} · 계정 전용 지침</strong>
-    <p><b>주제</b> ${escapeHtml(account.topic || '저장된 주제 없음')}</p>
-    <p><b>대상 독자·말투</b> ${escapeHtml(account.audience || '저장된 설명 없음')}</p>
-    <p><b>${promptLabel}</b> ${escapeHtml(prompt || '이 형식의 프롬프트가 아직 입력되지 않았습니다.')}</p>
-    <div class="guidance-references"><b>계정 전용 참고 링크</b>${references ? `<ul>${references}</ul>` : '<p>등록된 참고 링크가 없습니다.</p>'}</div>`;
-}
-
-function go(view) {
-  currentView = view;
-  if (view !== 'accounts') editingAccountId = null;
-  render();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function handleAccountSubmit(form) {
-  const data = new FormData(form);
-  const parsed = parseInstagramTarget(String(data.get('profile') || ''), false);
-  if (!parsed?.profile) {
-    toast('Instagram 프로필 주소 또는 계정 아이디를 확인해 주세요.');
-    return;
-  }
-  const existingId = String(data.get('id') || '');
-  const duplicate = state.accounts.find((entry) => entry.profile.toLowerCase() === parsed.profile.toLowerCase() && entry.id !== existingId);
-  if (duplicate) {
-    toast('이 Instagram 아이디는 이미 등록되어 있습니다.');
-    return;
-  }
-  if (!existingId && state.accounts.length >= 100) {
-    toast('운영 계정은 최대 100개까지 등록할 수 있습니다.');
-    return;
-  }
-  const account = {
-    id: existingId || crypto.randomUUID(),
-    profile: parsed.profile,
-    profileUrl: parsed.href,
-    name: String(data.get('name') || '').trim(),
-    topic: String(data.get('topic') || '').trim(),
-    audience: String(data.get('audience') || '').trim(),
-    references: String(data.get('references') || '').split(/\n+/).map((line) => line.trim()).filter(Boolean),
-    feedPrompt: String(data.get('feedPrompt') || '').trim(),
-    reelsPrompt: String(data.get('reelsPrompt') || '').trim(),
-    savedAt: new Date().toISOString()
-  };
-  if (existingId) state.accounts = state.accounts.map((entry) => entry.id === existingId ? account : entry);
-  else state.accounts.push(account);
-  persist();
-  editingAccountId = null;
-  render();
-  toast('입력한 계정 설정을 이 브라우저에 저장했습니다. Instagram 연결은 아직 되지 않았습니다.');
-}
-
-function handleResearchSubmit(form) {
-  const value = $('#research-input').value;
-  const pieces = value.split(/[\n,]+/).map((part) => part.trim()).filter(Boolean);
-  const valid = pieces.map((piece) => parseInstagramTarget(piece, true)).filter(Boolean);
-  const invalidCount = pieces.length - valid.length;
-  if (!valid.length) {
-    toast('Instagram 프로필 주소, 게시물 주소 또는 아이디를 확인해 주세요.');
-    return;
-  }
-  let added = 0;
-  for (const item of valid) {
-    const key = item.profile ? `profile:${item.profile.toLowerCase()}` : `url:${item.href.toLowerCase()}`;
-    const exists = state.research.some((record) => record.key === key);
-    if (exists) continue;
-    state.research.unshift({
-      id: crypto.randomUUID(), key, input: item.input, profile: item.profile,
-      href: item.href, kind: item.kind, addedAt: new Date().toISOString(), status: 'not-collected'
-    });
-    added += 1;
-  }
-  persist();
-  render();
-  toast(`${added}개 분석 대상을 브라우저에 저장했습니다.${invalidCount ? ` 형식 확인 필요 ${invalidCount}개는 제외했습니다.` : ''} 실제 통계 수집은 API 연결 전까지 되지 않습니다.`);
-}
-
-document.addEventListener('click', (event) => {
-  const nav = event.target.closest('[data-view]');
-  if (nav) { go(nav.dataset.view); return; }
-  const action = event.target.closest('[data-action]');
-  if (!action) return;
-  const id = action.dataset.id;
-  if (action.dataset.action === 'go-accounts') go('accounts');
-  else if (action.dataset.action === 'go-compose') go('compose');
-  else if (action.dataset.action === 'edit-account') { editingAccountId = id; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-  else if (action.dataset.action === 'cancel-account-edit') { editingAccountId = null; render(); }
-  else if (action.dataset.action === 'remove-account') {
-    const account = state.accounts.find((entry) => entry.id === id);
-    if (!account || !window.confirm(`${account.name || `@${account.profile}`} 계정 설정을 이 브라우저에서 삭제할까요?`)) return;
-    state.accounts = state.accounts.filter((entry) => entry.id !== id);
-    persist(); render(); toast('브라우저에 저장된 계정 설정을 삭제했습니다.');
-  } else if (action.dataset.action === 'remove-research') {
-    state.research = state.research.filter((entry) => entry.id !== id);
-    persist(); render(); toast('분석 대상 목록에서 삭제했습니다.');
-  } else if (action.dataset.action === 'remove-content') {
-    state.contents = state.contents.filter((entry) => entry.id !== id);
-    persist(); render(); toast('저장된 초안을 삭제했습니다.');
-  }
-});
-
-document.addEventListener('submit', (event) => {
-  if (event.target.id === 'account-form') {
-    event.preventDefault();
-    handleAccountSubmit(event.target);
-  } else if (event.target.id === 'research-form') {
-    event.preventDefault();
-    handleResearchSubmit(event.target);
-  } else if (event.target.id === 'content-form') {
-    event.preventDefault();
-    const data = new FormData(event.target);
-    if (!data.get('accountId')) { toast('운영 계정을 먼저 등록해 주세요.'); return; }
-    const source = safeExternalLink(data.get('source'));
-    if (source === null) { toast('원본 링크는 http 또는 https 주소만 사용할 수 있습니다.'); return; }
-    state.contents.unshift({
-      id: crypto.randomUUID(), accountId: String(data.get('accountId')),
-      type: String(data.get('type') || 'feed'), source,
-      title: String(data.get('title') || '').trim(), caption: String(data.get('caption') || '').trim(),
-      savedAt: new Date().toLocaleString('ko-KR')
-    });
-    persist(); go('queue'); toast('콘텐츠 초안을 이 브라우저에 저장했습니다. 예약·게시되지 않았습니다.');
-  }
-});
-
-document.addEventListener('keydown', (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-    event.preventDefault();
-    go('compose');
-  }
-});
-
-render();

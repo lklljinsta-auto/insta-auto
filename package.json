@@ -1,0 +1,22 @@
+{
+  "name": "instaauto-admin",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@10.9.9",
+  "scripts": {
+    "setup:local": "node scripts/setup-local.js",
+    "dev": "node --env-file=.env.local server.js",
+    "worker": "node --env-file=.env.local worker.js",
+    "migrate": "node --env-file=.env.local scripts/migrate.js",
+    "bootstrap:admin": "node --env-file=.env.local scripts/bootstrap-admin.js",
+    "test": "node --test --test-concurrency=1"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1176.0",
+    "@aws-sdk/s3-request-presigner": "^3.1176.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "pg": "^8.16.3"
+  }
+}
