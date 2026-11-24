@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="인스타오토">
+  <rect width="48" height="48" rx="12" fill="#203e51"/>
+  <g fill="none" stroke="#f5e7cb" stroke-width="3"><rect x="9" y="9" width="30" height="30" rx="8"/><circle cx="24" cy="24" r="7"/></g>
+  <circle cx="33" cy="15" r="2" fill="#f5e7cb"/>
+</svg>
