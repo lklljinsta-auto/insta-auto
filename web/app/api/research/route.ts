@@ -1,4 +1,4 @@
-import {env} from 'cloudflare:workers';
+import {discoveryConfig} from '../../../lib/discovery-config';
 import {consoleAccess} from '../../../lib/console-access';
 import {researchTarget} from '../../../lib/research-target';
 import {profileFields,mediaFields} from '../../../lib/research-fields';
@@ -12,8 +12,8 @@ export async function POST(req:Request){
  const target=typeof body?.input==='string'?researchTarget(body.input):null;
  if(!target)return json({error:'Instagram 주소 또는 아이디를 확인하세요.'},400);
  if(!target.username)return json({status:'작성자 아이디 필요'});
- const token=env.META_DISCOVERY_ACCESS_TOKEN,id=env.META_DISCOVERY_IG_ID;
- if(!token||!id||!/^\d+$/.test(id))return json({status:'API 미연결'});
+ const {token,id,problem}=discoveryConfig();
+ if(problem)return json({status:'API 미연결 · '+problem});
  const url=new URL('https://graph.facebook.com/v27.0/'+id);
  const base='id,username,biography,followers_count,media_count';
  const profileKeys=Object.keys(profileFields),mediaKeys=Object.keys(mediaFields);
@@ -31,6 +31,8 @@ export async function POST(req:Request){
   else if(code===190)status='API 재연결 필요';
   else if(code===10||code===200||response.status===403)status='권한 없음';
   else if(response.status>=500)status='조회 오류';
+  console.info('instagram.research.response', {httpStatus:response.status, metaCode:code, hasProfile:Boolean(payload.business_discovery),
+   posts:Array.isArray((payload.business_discovery?.media as {data?:unknown[]}|undefined)?.data) ? (payload.business_discovery?.media as {data:unknown[]}).data.length : null});
   return {data:response.ok?payload.business_discovery:null,status,code};
  }
  try{

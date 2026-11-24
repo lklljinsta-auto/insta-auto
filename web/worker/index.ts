@@ -1,3 +1,4 @@
+import { withDiscoveryBindings } from '../lib/discovery-config';
 import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
 import type { ConnectorBinding } from "../lib/connector-contract.mjs";
@@ -23,7 +24,7 @@ const worker = {
         },
       };
     }
-    return runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx));
+    return withDiscoveryBindings(env, () => runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx)));
   },
 };
 

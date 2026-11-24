@@ -89,9 +89,9 @@ const lookup=input=>research.POST(post({input}));
 assert.equal((await lookup('@sample')).status,403);
 user('admin-id','admin@example.test');
 assert.equal((await lookup('https://invalid.example/')).status,400);
-assert.equal((await (await lookup('sample')).json()).status,'API 미연결');
+assert.equal((await (await lookup('sample')).json()).status,'API 미연결 · 조회 토큰 없음');
 assert.equal((await (await lookup('https://www.instagram.com/reel/example/')).json()).status,'작성자 아이디 필요');
-Object.assign(globalThis.testEnv,{META_DISCOVERY_ACCESS_TOKEN:'fixture',META_DISCOVERY_IG_ID:'123'});
+Object.assign(globalThis.testEnv,{META_DISCOVERY_ACCESS_TOKEN:' fixture ',META_DISCOVERY_IG_ID:'123\r\n'});
 globalThis.fetch=async(url,opts)=>{
  assert.equal(url.hostname,'graph.facebook.com');
  assert.equal(opts.headers.Authorization,'Bearer fixture');
