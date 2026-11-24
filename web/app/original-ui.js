@@ -1,11 +1,11 @@
 export function mountConsole(root,manageUsers,select){
  const $=(q,within=root)=>within.querySelector(q);
  const escapeHtml=(v='')=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const state={accounts:[],contents:[],research:[],files:[]};
+ const state={accounts:[],contents:[],files:[]};
  let currentView='dashboard',editingAccountId=null,editingDraft=null,toastTimer,busy=false,ready=false;
  const controller=new AbortController(),signal=controller.signal;
  const kst=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'';
- const paths={dashboard:dashboardPage,research:researchPage,accounts:accountsPage,compose:composePage,queue:queuePage,analytics:analyticsPage,settings:settingsPage};
+ const paths={dashboard:dashboardPage,accounts:accountsPage,compose:composePage,queue:queuePage,analytics:analyticsPage,settings:settingsPage};
 function toast(message) {
   const node = $('#toast-root');
   node.textContent = message;
@@ -33,14 +33,14 @@ function emptyState(title, detail, action = '') {
 function dashboardPage() {
   const counts = [
     ['내 운영 계정', state.accounts.length, '개'],
-    ['분석 대상', state.research.length, '개'],
+    ['보관 파일', state.files.length, '개'],
     ['저장한 콘텐츠', state.contents.length, '개']
   ];
   return `${heading('운영 현황', '인스타오토', '운영 계정과 계정별 콘텐츠를 확인합니다.')}
     <section class="summary-grid" aria-label="현재 입력된 항목">${counts.map(([label, value, unit]) => `<article class="summary-card"><span>${label}</span><strong>${value}<small>${unit}</small></strong></article>`).join('')}</section>
     <section class="panel section-panel"><div class="panel-heading"><div><h2>먼저 할 일</h2><p>등록된 계정의 지침과 콘텐츠를 관리합니다.</p></div></div>
       <div class="action-grid">
-        <button class="action-card" data-view="research"><span class="action-icon">⌕</span><strong>Instagram 계정 분석</strong><span>여러 프로필 주소나 아이디를 입력해 분석 대상으로 관리합니다.</span></button>
+        <button class="action-card" data-view="research"><span class="action-icon">⌕</span><strong>Instagram 계정 분석</strong><span>프로필이나 게시물 링크로 공개 정보와 지표를 바로 조회합니다.</span></button>
         <button class="action-card" data-view="accounts"><span class="action-icon">◎</span><strong>내 운영 계정 추가</strong><span>계정별 링크와 피드·릴스 지침을 따로 입력합니다.</span></button>
         <button class="action-card" data-view="compose"><span class="action-icon">＋</span><strong>콘텐츠 초안 작성</strong><span>실제 입력한 원본 링크와 계정별 지침으로 초안을 기록합니다.</span></button>
       </div>
@@ -87,24 +87,6 @@ function safeExternalLink(value) {
   } catch {
     return null;
   }
-}
-
-function researchPage() {
-  const list = state.research.length ? `<div class="record-list">${state.research.map((item) => `
-    <article class="record-card">
-      <div class="record-main"><span class="record-type">${escapeHtml(item.kind)}</span><strong>${escapeHtml(item.profile ? `@${item.profile}` : item.input)}</strong><a href="${escapeHtml(item.href)}" target="_blank" rel="noopener noreferrer">Instagram에서 열기 ↗</a></div>
-      <div class="record-state"><span class="state-chip">통계 미수집</span><span>수집 기능 미연결</span></div>
-      <button class="btn btn-small" data-action="remove-research" data-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.input)} 삭제">삭제</button>
-    </article>`).join('')}</div>` : emptyState('등록된 분석 대상이 없습니다', 'Instagram 프로필 주소나 아이디를 입력하면 여기에 저장됩니다. 아직 통계 수집 API가 연결되지 않아 실제 수치는 표시할 수 없습니다.');
-  return `${heading('Instagram 계정 분석', '여러 계정을 한 번에 등록하고 관리합니다.', '계정 유형을 먼저 선택할 필요 없이 프로필 링크, 게시물 링크 또는 아이디를 입력할 수 있습니다.')}
-    ${infoBox('통계 수집은 아직 연결되지 않았습니다', '등록한 분석 대상은 운영 서버에 저장됩니다. Instagram의 공식 API 또는 허용된 공개 데이터 수집 경로가 연결되기 전에는 게시 빈도, 조회수, 좋아요, 댓글, 평균·중앙값을 가져오지 않으며 임의의 분석 결과도 만들지 않습니다. 로그인 세션을 이용한 무단 수집은 하지 않습니다.', 'warning')}
-    <section class="panel form-panel"><form id="research-form">
-      <label for="research-input">분석할 Instagram 주소 또는 아이디</label>
-      <textarea id="research-input" class="large-input" rows="5" placeholder="한 줄에 하나씩 입력\nhttps://www.instagram.com/계정아이디/\n@계정아이디" required></textarea>
-      <p class="field-help">여러 개를 줄바꿈이나 쉼표로 구분해 입력할 수 있습니다. 비즈니스·크리에이터 여부를 요구하지 않습니다.</p>
-      <div class="form-actions"><button class="btn btn-primary" type="submit">분석 대상 목록에 등록</button></div>
-    </form></section>
-    <section class="panel section-panel"><div class="panel-heading"><div><h2>분석 대상</h2><p>실제 수집이 완료된 지표만 추후 여기에 표시합니다.</p></div><span class="count-chip">${state.research.length}개</span></div>${list}</section>`;
 }
 
 function accountFields(account = {}) {
@@ -221,12 +203,11 @@ function updateComposeGuidance() {
   });
   state.contents=d.drafts.map(x=>({id:x.id,accountId:x.account,type:x.format==='reel'?'reels':'feed',source:x.source,
    title:x.title,caption:x.caption,schedule:x.schedule,savedAt:kst(x.updated)}));
-  state.research=d.targets.map(t=>({...parseInstagramTarget(t.href),id:t.id}));
   state.files=d.files;
   ready=true;
  }
  function render(){
-  if(!ready||currentView==='admin')return;
+  if(!ready||currentView==='admin'||currentView==='research')return;
   $('#view-root').innerHTML=paths[currentView]();
   if(currentView==='compose'){
    const f=$('#content-form');
@@ -241,7 +222,7 @@ function updateComposeGuidance() {
   }
  }
  function go(view){
-  if(!Object.hasOwn(paths,view)&&!(manageUsers&&view==='admin'))view='dashboard';
+  if(!Object.hasOwn(paths,view)&&view!=='research'&&!(manageUsers&&view==='admin'))view='dashboard';
   currentView=view;if(view!=='compose')editingDraft=null;if(view!=='accounts')editingAccountId=null;
   select(view);history.replaceState(null,'','#'+view);render();window.scrollTo(0,0);
  }
@@ -277,7 +258,7 @@ function updateComposeGuidance() {
  },{signal});
  root.addEventListener('submit',e=>{
   const f=e.target;
-  if(!['account-form','research-form','content-form'].includes(f.id))return;
+  if(!['account-form','content-form'].includes(f.id))return;
   e.preventDefault();
   const b=Object.fromEntries(new FormData(f));
   if(f.id==='account-form'){
@@ -287,11 +268,6 @@ function updateComposeGuidance() {
    change(()=>save({id:b.id,type:'account',handle:profile.profile,alias:b.name,topic:b.topic,audience:b.audience,
     voice:old?.voice||'',avoid:old?.avoid||'',feed:b.feedPrompt,reel:b.reelsPrompt,sources:b.references}),
     ()=>{editingAccountId=null;render();toast('운영 계정을 저장했습니다.');});
-  }else if(f.id==='research-form'){
-   const inputs=$('#research-input').value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
-   const targets=inputs.map(s=>parseInstagramTarget(s));
-   if(!targets.length||targets.some(t=>!t)){toast('입력한 Instagram 아이디 또는 주소를 확인하세요.');return;}
-   change(()=>save({type:'research',targets:targets.map(t=>t.href)}),()=>{render();toast('분석 대상을 저장했습니다.');});
   }else{
    const source=safeExternalLink(b.source);
    if(source===null){toast('원본 주소를 확인하세요.');return;}

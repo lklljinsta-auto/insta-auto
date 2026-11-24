@@ -5,12 +5,11 @@ const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache
 export async function GET(){
  const u=await consoleAccess(); if(!u)return json({error:'등록된 Gmail로 로그인하세요.'},403);
  const scope=recordAccess(u);
- const db=env.DB!;const [a,d,f,t]=await db.batch([
+ const db=env.DB!;const [a,d,f]=await db.batch([
   db.prepare(`select id,handle,alias,guide,updated from accounts where ${scope.where} order by handle`).bind(...scope.args),
   db.prepare(`select id,account,title,caption,format,source,schedule,updated from drafts where ${scope.where} order by updated desc`).bind(...scope.args),
-  db.prepare(`select id,draft,name,size,updated from files where ${scope.where} order by updated desc`).bind(...scope.args),
-  db.prepare(`select id,href from research_targets where ${scope.where} order by added desc`).bind(...scope.args)]);
- return json({accounts:a.results,drafts:d.results,files:f.results,targets:t.results});
+  db.prepare(`select id,draft,name,size,updated from files where ${scope.where} order by updated desc`).bind(...scope.args)]);
+ return json({accounts:a.results,drafts:d.results,files:f.results});
 }
 export async function POST(req:Request){
  const u=await consoleAccess();if(!u?.canEdit)return json({error:'등록된 사용자만 변경할 수 있습니다.'},403);
@@ -39,21 +38,11 @@ export async function POST(req:Request){
   if(scheduled&&isNaN(+scheduled))return json({error:'날짜를 확인하세요.'},400);
   const saved=await db.prepare('insert into drafts(id,owner,account,title,caption,format,source,schedule,updated) values(?,?,?,?,?,?,?,?,?) on conflict(id) do update set title=excluded.title,caption=excluded.caption,format=excluded.format,source=excluded.source,schedule=excluded.schedule,updated=excluded.updated where drafts.owner=excluded.owner and drafts.account=excluded.account').bind(id,a.owner,val('account'),val('title'),val('caption'),val('format'),val('source').slice(0,6000),scheduled?.toISOString()??null,now).run();
   if(!saved.meta.changes)return json({error:'초안의 계정을 확인하세요.'},409);
- }else if(b.type==='research'){
-  if(!Array.isArray(b.targets)||!b.targets.length||b.targets.length>100)return json({error:'분석 대상은 한 번에 1~100개를 입력하세요.'},400);
-  const links=new Set<string>();
-  for(const raw of b.targets){
-   const url=URL.canParse(String(raw))?new URL(String(raw)):null;
-   if(!url||url.origin!=='https://www.instagram.com'||!/^\/(?:[a-zA-Z0-9._]{1,30}|(?:p|reels?|tv)\/[a-zA-Z0-9_-]+)\/?$/.test(url.pathname))return json({error:'Instagram 주소를 확인하세요.'},400);
-   links.add(url.origin+url.pathname.replace(/\/?$/,'/'));
-  }
-  await db.batch([...links].map(href=>db.prepare('insert into research_targets(id,owner,href,added) values(?,?,?,?) on conflict(owner,href) do nothing').bind(crypto.randomUUID(),scope.owner,href,now)));
  }else if(b.type==='remove'){
   const key=val('kind'),target=val('id');
   const queries:Record<string,string>={
    account:`delete from accounts where id=? and ${scope.where} and not exists(select 1 from drafts where account=accounts.id)`,
-   draft:`delete from drafts where id=? and ${scope.where} and not exists(select 1 from files where draft=drafts.id)`,
-   research:`delete from research_targets where id=? and ${scope.where}`
+   draft:`delete from drafts where id=? and ${scope.where} and not exists(select 1 from files where draft=drafts.id)`
   };
   if(!Object.hasOwn(queries,key))return json({error:'삭제 대상을 확인하세요.'},400);
   const result=await db.prepare(queries[key]).bind(target,...scope.args).run();

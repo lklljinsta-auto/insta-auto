@@ -1,5 +1,6 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
+import Research from './research';
 import Viewers from './viewers';
 import {mountConsole} from './original-ui';
 const menus=[
@@ -17,7 +18,8 @@ export default function Console({manageUsers,email,roleLabel}:{manageUsers:boole
   <div className="nav-caption">운영 메뉴</div><nav className="primary-nav" aria-label="운영 메뉴">{nav.map(([id,icon,title])=><button type="button" key={id} data-view={id} className={'nav-item'+(id===view?' active':'')} aria-current={id===view?'page':undefined}><span className="nav-icon">{icon}</span><span>{title}</span></button>)}</nav>
   <div className="sidebar-note"><strong>현재 저장 방식</strong><span>운영 서버에 저장됩니다.</span></div></aside>
   <main className="main-area"><header className="topbar"><div className="breadcrumb"><strong>인스타오토</strong><span>/</span><span>{nav.find(([id])=>id===view)?.[2]}</span></div><div className="topbar-status"><span className="status-dot"/><span>Instagram API 미연결</span></div></header>
-  <section className="view-root" id="view-root" hidden={view==='admin'} aria-live="polite"/>
+  <section className="view-root" id="view-root" hidden={view==='admin'||view==='research'} aria-live="polite"/>
+  {view==='research'&&<Research/>}
   {manageUsers&&view==='admin'&&<div className="view-root"><div className="page-heading"><div><p className="eyebrow">인스타오토</p><h1>관리자</h1></div></div><Viewers/></div>}</main>
   <div id="toast-root" className="toast-root" role="status" aria-live="polite"/></div>;
 }
