@@ -23,3 +23,5 @@
 .research-table tbody th{position:sticky;left:0;background:var(--paper);min-width:9em;overflow-wrap:anywhere}
 .research-table td{max-width:24em;overflow-wrap:anywhere;white-space:pre-line}.research-table small{display:block;color:var(--muted);white-space:nowrap}
 .research-photo{width:60px;height:60px;border-radius:50%;object-fit:cover}.research-table a{color:var(--navy)}
+
+.research-usage p{margin:6px 0 0}

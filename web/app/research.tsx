@@ -41,11 +41,12 @@ export default function Research(){
   }
   void Promise.all([run(),run()]);
  }
- return <section className="view-root"><div className="page-heading"><div><p className="eyebrow">인스타오토</p><h1>Instagram 계정 분석</h1><p className="page-description">아이디나 링크로 바로 조회합니다. 새로고침하면 입력과 결과가 사라집니다.</p></div></div>
+ return <section className="view-root"><div className="page-heading"><div><p className="eyebrow">인스타오토</p><h1>Instagram 계정 분석</h1><p className="page-description">아이디나 링크로 바로 조회합니다. 새로고침하면 입력과 결과가 사라집니다.</p>
+ <p className="page-description">공개 비즈니스·크리에이터 계정만 API로 조회할 수 있습니다. 개인·비공개·연령 제한 계정은 제외됩니다.</p></div></div>
  <section className="panel form-panel"><form onSubmit={submit} autoComplete="off"><label htmlFor="research-input">Instagram 아이디 · 프로필 · 게시물 · 릴스 링크</label>
  <textarea id="research-input" className="large-input" rows={4} placeholder="여러 대상을 줄바꿈이나 쉼표로 구분해 입력" required value={input} onChange={e=>setInput(e.target.value)}/>
  <div className="form-actions"><button className="btn btn-primary" type="submit">바로 조회</button></div>{notice&&<p role="status">{notice}</p>}</form></section>
- <section className="panel" aria-label="Meta 앱 사용량" aria-live="polite"><h2>Meta 앱 사용량</h2>
+ <section className="panel section-panel research-usage" aria-label="Meta 앱 사용량" aria-live="polite"><h2>Meta 앱 사용량</h2>
  {usage?.limited&&<p role="status"><strong>호출 한도 도달</strong></p>}
  {sample&&<><p><strong>최근 1시간 호출 잔여율 {sample.calls===null?'미제공':Math.max(0,100-sample.calls)+'%'}</strong></p>
  <p>호출 사용률 {sample.calls===null?'미제공':sample.calls+'%'} · CPU 사용률 {sample.cpu===null?'미제공':sample.cpu+'%'} · 처리 시간 사용률 {sample.time===null?'미제공':sample.time+'%'}</p>
