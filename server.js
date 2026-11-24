@@ -16,7 +16,8 @@ app.post('/api/auth/login',async(req,res,next)=>{try{const email=String(req.body
 app.post('/api/auth/logout',requireAdmin,async(req,res,next)=>{try{await query('DELETE FROM admin_sessions WHERE id=$1',[req.session.id]);res.setHeader('Set-Cookie',`ia_session=; Path=/; HttpOnly; SameSite=${secureCookieFor(req)?'None':'Lax'}; Max-Age=0${secureCookieFor(req)?'; Secure':''}`);res.status(204).end();}catch(e){next(e);}});
 app.get('/api/auth/session',requireAdmin,(req,res)=>res.json({authenticated:true,email:req.admin.email,csrfToken:req.session.csrf}));
 app.use('/api',createApiRouter(requireAdmin));
-app.get('/',(req,res)=>res.sendFile(new URL('./index.html',import.meta.url).pathname));
+app.get(['/', '/index.html'], (req, res) => res.sendFile(new URL('./index.html', import.meta.url).pathname));
+app.get('/local-admin', (req, res) => res.sendFile(new URL('./src/local-admin.html', import.meta.url).pathname));
 app.get('/styles.css',(req,res)=>res.sendFile(new URL('./styles.css',import.meta.url).pathname));
 app.get('/readable.css',(req,res)=>res.sendFile(new URL('./readable.css',import.meta.url).pathname));
 app.get('/guidance.css',(req,res)=>res.sendFile(new URL('./guidance.css',import.meta.url).pathname));

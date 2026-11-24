@@ -1,8 +1,10 @@
 # 인스타오토 개발 브랜치
 
-## Windows에서 관리자 열기
+[인스타오토 웹 운영 화면](https://lklljinsta-auto.github.io/insta-auto/)에서 접속한다.
 
-Docker Desktop의 Linux 컨테이너 엔진을 실행한 뒤 저장소 폴더에서 `start-local.cmd`를 실행한다. 웹, PostgreSQL, 예약 워커가 시작되면 브라우저가 열린다. 로컬 접속 주소는 http://localhost:3000 이다. 관리자 아이디는 `admin@localhost`이며 최초 생성한 비밀번호는 Windows 사용자 폴더 `%LOCALAPPDATA%\InstaAuto\local.env`의 `ADMIN_PASSWORD`에 있다. 이 파일은 재실행과 복구 시 필요하다.
+## Windows에서 별도 개발 서버 열기
+
+Docker Desktop의 Linux 컨테이너 엔진을 실행한 뒤 저장소 폴더에서 `start-local.cmd`를 실행한다. 웹, PostgreSQL, 예약 워커가 시작되면 브라우저가 열린다. 로컬 접속 주소는 http://localhost:3000/local-admin 이다. 관리자 아이디는 `admin@localhost`이며 최초 생성한 비밀번호는 Windows 사용자 폴더 `%LOCALAPPDATA%\InstaAuto\local.env`의 `ADMIN_PASSWORD`에 있다. 이 파일은 재실행과 복구 시 필요하다.
 
 운영 계정에서 실제 사용할 계정을 추가하고 각 행의 **원본·제작 지침**을 입력한다. **콘텐츠·예약**에서 계정과 형식을 골라 초안을 저장하고 파일을 첨부한다. 피드 최종 파일은 JPEG, 릴스 최종 파일은 MP4를 사용한다. 계정별 파일 목록에서 한국시간과 제목이 붙은 원본을 내려받을 수 있다. **승인하고 예약**을 누르면 지정한 한국시간에 서버 워커가 권한과 연동 상태를 확인한다. 게시를 끄거나 외부 연동이 누락된 계정은 보류된다.
 

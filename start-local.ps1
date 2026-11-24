@@ -31,7 +31,7 @@ for ($i=0; $i -lt 90; $i++) {
         if ($health.database -and $health.status -eq 'ready') {
             Write-Host "Email: admin@localhost"
             Write-Host "Your local administrator password is the ADMIN_PASSWORD entry in $envPath"
-            Start-Process 'http://localhost:3000'
+            Start-Process 'http://localhost:3000/local-admin'
             return
         }
     } catch {}
