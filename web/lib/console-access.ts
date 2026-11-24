@@ -16,5 +16,16 @@ export async function consoleAccess(user?:ChatGPTUser){
   return {owner:env.CONSOLE_SHARED_WORKSPACE?.trim()||u.userId,canEdit:true,manageUsers:true,label};
  }
  const grant=await env.DB!.prepare('select owner from viewers where email=?').bind(email).first<{owner:string}>();
- return grant?{owner:grant.owner,canEdit:true,manageUsers:false,label:'사용자'}:null;
+ return grant?{owner:grant.owner,memberId:u.userId,canEdit:true,manageUsers:false,label:'사용자'}:null;
+}
+
+// Existing unassigned records use the bare workspace key and are administrator-only.
+export function recordAccess(access:NonNullable<Awaited<ReturnType<typeof consoleAccess>>>){
+ const prefix='member/'+encodeURIComponent(access.owner)+'/';
+ if(access.manageUsers){
+  return {owner:access.owner,where:'(owner = ? OR substr(owner, 1, length(?)) = ?)',args:[access.owner,prefix,prefix]};
+ }
+ if(!access.memberId)throw new Error('Missing authenticated member ID');
+ const owner=prefix+encodeURIComponent(access.memberId);
+ return {owner,where:'owner = ?',args:[owner]};
 }
