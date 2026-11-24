@@ -2,11 +2,15 @@
 import {useEffect,useRef,useState,type FormEvent} from 'react';
 import {researchTarget,type Target} from '../lib/research-target';
 
+import {mergeUsage,type UsageReport} from '../lib/meta-usage';
 import {ResearchTables} from './research-tables';
 import type {Result} from '../lib/research-fields';
 
 export default function Research(){
  const [input,setInput]=useState(''),[targets,setTargets]=useState<Target[]>([]),[results,setResults]=useState<Record<string,Result>>({}),[notice,setNotice]=useState('');
+ const [usage,setUsage]=useState<UsageReport|null>(null);
+ const [usageMessage,setUsageMessage]=useState('첫 조회 후 표시됩니다.');
+ const sample=usage?.sample;
  const controller=useRef<AbortController|null>(null);
  useEffect(()=>()=>controller.current?.abort(),[]);
  function submit(e:FormEvent){
@@ -28,7 +32,11 @@ export default function Research(){
      const data=await r.json();
      result=r.ok&&typeof data.status==='string'?data:{status:r.status===403?'사용 권한 확인 필요':'조회 오류'};
     }catch{result={status:'조회 오류'};}
-    if(!next.signal.aborted)setResults(old=>({...old,[target.href]:result}));
+    if(next.signal.aborted) return;
+    setResults(old=>({...old,[target.href]:result}));
+    const report=result.usage;
+    if(report) setUsage(previous=>mergeUsage(previous,report));
+    else setUsageMessage(result.status==='API 미연결'?'API 미연결':result.status+' · 사용량 확인 전');
    }
   }
   void Promise.all([run(),run()]);
@@ -37,5 +45,12 @@ export default function Research(){
  <section className="panel form-panel"><form onSubmit={submit} autoComplete="off"><label htmlFor="research-input">Instagram 아이디 · 프로필 · 게시물 · 릴스 링크</label>
  <textarea id="research-input" className="large-input" rows={4} placeholder="여러 대상을 줄바꿈이나 쉼표로 구분해 입력" required value={input} onChange={e=>setInput(e.target.value)}/>
  <div className="form-actions"><button className="btn btn-primary" type="submit">바로 조회</button></div>{notice&&<p role="status">{notice}</p>}</form></section>
+ <section className="panel" aria-label="Meta 앱 사용량" aria-live="polite"><h2>Meta 앱 사용량</h2>
+ {usage?.limited&&<p role="status"><strong>호출 한도 도달</strong></p>}
+ {sample&&<><p><strong>최근 1시간 호출 잔여율 {sample.calls===null?'미제공':Math.max(0,100-sample.calls)+'%'}</strong></p>
+ <p>호출 사용률 {sample.calls===null?'미제공':sample.calls+'%'} · CPU 사용률 {sample.cpu===null?'미제공':sample.cpu+'%'} · 처리 시간 사용률 {sample.time===null?'미제공':sample.time+'%'}</p>
+ <p>마지막 사용량 수신 {new Date(sample.measuredAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false})} (한국시간)</p></>}
+ {usage&&!usage.latestHasUsage&&<p>이번 Meta 응답에는 사용량 정보가 없습니다.</p>}
+ {!usage&&<p>{usageMessage}</p>}</section>
  {targets.length>0&&<ResearchTables targets={targets} results={results}/>}</section>;
 }

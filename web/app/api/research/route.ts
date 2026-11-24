@@ -2,6 +2,7 @@ import {env} from 'cloudflare:workers';
 import {consoleAccess} from '../../../lib/console-access';
 import {researchTarget} from '../../../lib/research-target';
 import {profileFields,mediaFields} from '../../../lib/research-fields';
+import {readAppUsage,mergeUsage,type UsageReport} from '../../../lib/meta-usage';
 export const dynamic='force-dynamic';
 const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cache-Control':'private, no-store'}});
 export async function POST(req:Request){
@@ -16,36 +17,40 @@ export async function POST(req:Request){
  const url=new URL('https://graph.facebook.com/v27.0/'+id);
  const base='id,username,biography,followers_count,media_count';
  const profileKeys=Object.keys(profileFields),mediaKeys=Object.keys(mediaFields);
+ let usage:UsageReport|null=null;
  async function query(fields:string){
   url.searchParams.set('fields','business_discovery.username('+target!.username+'){'+fields+'}');
   const response=await fetch(url,{headers:{Authorization:'Bearer '+token},redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000)});
+  const receivedAt=new Date().toISOString();
+  const sample=readAppUsage(response.headers.get('x-app-usage'),receivedAt);
+  usage=mergeUsage(usage,{receivedAt,sample,latestHasUsage:!!sample,limited:response.status===429});
   const payload=await response.json() as {business_discovery?:Record<string,unknown>,error?:{code:number}};
   const code=payload.error?.code;
   let status='조회 불가';
-  if(code===190)status='API 재연결 필요';
+  if(response.status===429||[4,17,32,613].includes(code??0)){status='호출 한도 도달';usage.limited=true;}
+  else if(code===190)status='API 재연결 필요';
   else if(code===10||code===200||response.status===403)status='권한 없음';
-  else if(response.status===429||[4,17,32,613].includes(code??0))status='호출 한도 도달';
   else if(response.status>=500)status='조회 오류';
   return {data:response.ok?payload.business_discovery:null,status,code};
  }
  try{
   let result=await query(profileKeys.join(',')+',media.limit(12){'+mediaKeys.join(',')+'}');
-  if(!result.data&&[10,100,200].includes(result.code??0)){
+  if(!result.data&&result.status!=='호출 한도 도달'&&[10,100,200].includes(result.code??0)){
    result=await query('id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count,media.limit(12){id,permalink,caption,media_type,media_product_type,timestamp,like_count,comments_count,view_count}');
   }
-  if(!result.data&&result.code===100){
+  if(!result.data&&result.status!=='호출 한도 도달'&&result.code===100){
    result=await query(base+',media.limit(12){permalink,caption,media_type,timestamp,like_count,comments_count}');
   }
   let mediaStatus='미제공';
-  if(!result.data&&[10,100,200].includes(result.code??0)){
+  if(!result.data&&result.status!=='호출 한도 도달'&&[10,100,200].includes(result.code??0)){
    mediaStatus=result.status;result=await query(base);
   }
-  if(!result.data)return json({status:result.status});
+  if(!result.data)return json({status:result.status,usage});
   const profile=result.data;
   const rows=(profile.media as {data?:Record<string,unknown>[]} | undefined)?.data;
   const clean=(obj:Record<string,unknown>,keys:string[])=>Object.fromEntries(keys.map(key=>[key,
    typeof obj[key]==='number'||typeof obj[key]==='boolean'||typeof obj[key]==='string'?obj[key]:null]));
-  return json({status:'조회 완료',checkedAt:new Date().toISOString(),profile:clean(profile,profileKeys),
+  return json({status:'조회 완료',usage,checkedAt:new Date().toISOString(),profile:clean(profile,profileKeys),
    media:Array.isArray(rows)?rows.slice(0,12).map(row=>clean(row,mediaKeys)):null,mediaStatus});
- }catch{return json({status:'조회 오류'});}
+ }catch{return json({status:'조회 오류',usage});}
 }

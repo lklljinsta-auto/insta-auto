@@ -5,7 +5,7 @@ export const mediaFields={
  timestamp:'게시 시각 (한국시간)',media_product_type:'게시 위치',media_type:'형식',view_count:'조회수',like_count:'좋아요',comments_count:'댓글',reposts_count:'리포스트',caption:'캡션',permalink:'게시물 주소',id:'미디어 ID',shortcode:'게시물 코드',username:'작성자',media_url:'미디어 주소',thumbnail_url:'썸네일 주소',media_audio_type:'오디오 유형',is_shared_to_feed:'피드 공유 여부',total_comments_count:'광고 포함 댓글',total_like_count:'광고 포함 좋아요',alt_text:'대체 텍스트'
 };
 export type Fields=Record<string,string|number|boolean|null>;
-export type Result={status:string,profile?:Fields,media?:Fields[]|null,mediaStatus?:string,checkedAt?:string};
+export type Result={status:string,usage?:import('./meta-usage').UsageReport|null,profile?:Fields,media?:Fields[]|null,mediaStatus?:string,checkedAt?:string};
 export function summarize(rows:Fields[],key:string){
  const values=rows.map(r=>r[key]).filter((v):v is number=>typeof v==='number'&&Number.isFinite(v)).sort((a,b)=>a-b);
  const n=values.length,sum=values.reduce((a,b)=>a+b,0);
