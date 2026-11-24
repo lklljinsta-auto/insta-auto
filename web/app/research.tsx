@@ -4,6 +4,7 @@ import {researchTarget,type Target} from '../lib/research-target';
 
 import {mergeUsage,type UsageReport} from '../lib/meta-usage';
 import {publicQueries,type PublicReport} from '../lib/public-counts';
+import {scanUploads} from '../lib/upload-history';
 import {ResearchTables} from './research-tables';
 import type {Result} from '../lib/research-fields';
 
@@ -12,6 +13,7 @@ export default function Research({configured}:{configured:boolean}){
  const [usage,setUsage]=useState<UsageReport|null>(null);
  const [usageMessage,setUsageMessage]=useState(configured?'첫 조회 후 표시됩니다.':'API 미연결');
  const sample=usage?.sample;
+ const [lookupId,setLookupId]=useState(0);
  const controller=useRef<AbortController|null>(null);
  useEffect(()=>()=>controller.current?.abort(),[]);
  function submit(e:FormEvent){
@@ -23,8 +25,9 @@ export default function Research({configured}:{configured:boolean}){
   const list=[...unique.values()];
   controller.current?.abort();
   const next=new AbortController();controller.current=next;
-  setResults({});setTargets(list);setNotice(invalid?'잘못된 입력 '+invalid+'개를 제외했습니다.':'');
+  setLookupId(x=>x+1);setResults({});setTargets(list);setNotice(invalid?'잘못된 입력 '+invalid+'개를 제외했습니다.':'');
   let index=0;
+  const histories:Array<()=>Promise<void>>=[];
   async function run(){
    while(!next.signal.aborted&&index<list.length){
     const target=list[index++];let result:Result;
@@ -39,18 +42,40 @@ export default function Research({configured}:{configured:boolean}){
     const report=result.usage;
     if(report) setUsage(previous=>mergeUsage(previous,report));
     else setUsageMessage(result.status==='API 미연결'?'API 미연결':result.status+' · 사용량 확인 전');
-    if(links.length){
+    async function getPublic(){
+     if(!links.length)return;
      let report:PublicReport={observations:[],failed:links.length};
      try{
       const response=await fetch('/api/research/public',{method:'POST',cache:'no-store',signal:next.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({links})});
       if(response.ok){const data=await response.json() as PublicReport;if(Array.isArray(data.observations))report=data;}
      }catch{}
      if(next.signal.aborted)return;
-     setResults(old=>({...old,[target.href]:{...result,publicReport:report}}));
+     setResults(old=>({...old,[target.href]:{...old[target.href],publicPending:false,publicReport:report}}));
     }
+    async function getHistory(){
+     if(!target.username||!result.profile)return;
+     const total=result.profile.media_count;
+     let history;
+     try{
+      history=await scanUploads(async after=>{
+       const response=await fetch('/api/research',{method:'POST',cache:'no-store',signal:next.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({input:target.href,mode:'history',after})});
+       if(!response.ok)throw Error();
+       const page=await response.json() as Awaited<ReturnType<Parameters<typeof scanUploads>[0]>> & {usage?:UsageReport};
+       if(next.signal.aborted)throw Error();
+       if(page.usage)setUsage(previous=>mergeUsage(previous,page.usage!));
+       return page;
+      },typeof total==='number'?total:null);
+     }catch{history={status:'전체 이력 조회 중단'};}
+     if(!next.signal.aborted)setResults(old=>({...old,[target.href]:{...old[target.href],history}}));
+    }
+    if(result.profile)histories.push(getHistory);
+    await getPublic();
    }
   }
-  void Promise.all([run(),run()]);
+  async function historyWorker(){
+   while(!next.signal.aborted&&histories.length)await histories.shift()!();
+  }
+  void Promise.all([run(),run()]).then(()=>Promise.all([historyWorker(),historyWorker()]));
  }
  return <section className="view-root"><div className="page-heading"><div><p className="eyebrow">인스타오토</p><h1>Instagram 계정 분석</h1><p className="page-description">아이디나 링크로 바로 조회합니다. 새로고침하면 입력과 결과가 사라집니다.</p>
  <p className="page-description">Meta API는 공개 비즈니스·크리에이터 계정을 조회합니다. 빠진 수치는 공개 검색 결과에 표시된 범위에서 보완합니다.</p></div></div>
@@ -64,5 +89,5 @@ export default function Research({configured}:{configured:boolean}){
  <p>마지막 사용량 수신 {new Date(sample.measuredAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false})} (한국시간)</p></>}
  {usage&&!usage.latestHasUsage&&<p>이번 Meta 응답에는 사용량 정보가 없습니다.</p>}
  {!usage&&<p>{usageMessage}</p>}</section>
- {targets.length>0&&<ResearchTables targets={targets} results={results}/>}</section>;
+ {targets.length>0&&<ResearchTables key={lookupId} targets={targets} results={results}/>}</section>;
 }

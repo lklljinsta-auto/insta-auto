@@ -1,5 +1,7 @@
 'use client';
 import {useState,type ReactNode} from 'react';
+import {CopiedProfile} from './copied-profile';
+import {upload,type Upload} from '../lib/upload-history';
 import {researchTarget,type Target} from '../lib/research-target';
 import {supplement,type PublicObservation} from '../lib/public-counts';
 import {profileFields,mediaFields,summarize,intervals,type Fields,type Result} from '../lib/research-fields';
@@ -33,7 +35,7 @@ function cell(key:string,value:Fields[string]|undefined,status:string):ReactNode
 }
 type Row={id:string,label:ReactNode,values:ReactNode[],notice?:string,group?:string};
 function Table({title,first,headers,rows}:{title:string,first:string,headers:string[],rows:Row[]}){
- return <section className="panel section-panel"><h2>{title}</h2><div className="research-scroll" tabIndex={0} aria-label={title}><table className="research-table"><thead><tr><th scope="col">{first}</th>{headers.map(h=><th key={h} scope="col">{h}</th>)}</tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} className={i>0&&r.group&&r.group!==rows[i-1].group?'research-account-break':undefined}><th scope="row">{r.label}</th>{r.notice?<td colSpan={headers.length}>{r.notice}</td>:r.values.map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody></table></div></section>;
+ return <section className="panel section-panel"><h2>{title}</h2><div className="research-scroll" tabIndex={0} aria-label={title}><table className="research-table"><thead><tr><th scope="col">{first}</th>{headers.map(h=><th key={h} scope="col">{h.includes('중앙값')?<abbr title="확인된 값을 정렬한 가운데 값입니다. 짝수 개면 가운데 두 값의 평균입니다.">{h}</abbr>:h}</th>)}</tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} className={i>0&&r.group&&r.group!==rows[i-1].group?'research-account-break':undefined}><th scope="row">{r.label}</th>{r.notice?<td colSpan={headers.length}>{r.notice}</td>:r.values.map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody></table></div></section>;
 }
 const kpis=['평균 조회수','조회수 중앙값','댓글 합계','평균 댓글','댓글 중앙값','좋아요 합계','평균 좋아요','좋아요 중앙값','평균 업로드 간격','최근 게시 시각','표본 시작 시각','피드 수','릴스 수','조회한 게시물 수'];
 function analysis(rows:Fields[]|undefined|null,missing:string){
@@ -47,9 +49,11 @@ function analysis(rows:Fields[]|undefined|null,missing:string){
  period.last===undefined?'표본 없음':date(period.last),period.first===undefined?'표본 없음':date(period.first),kind('FEED'),kind('REELS'),rows.length];
 }
 export function ResearchTables({targets,results}:{targets:Target[],results:Record<string,Result>}){
+ const [copies,setCopies]=useState<Record<string,Fields>>({});
  const profiles:Row[]=[],stats:Row[]=[],posts:Row[]=[];
- function observedCell(key:string,row:Fields|undefined,observation:PublicObservation|undefined,archive?:PublicObservation,inputUsername?:string){
+ function observedCell(key:string,row:Fields|undefined,observation:PublicObservation|undefined,archive?:PublicObservation,inputUsername?:string,copy?:Fields){
   if(row?.[key]!=null&&row[key]!=='')return cell(key,row[key],'—');
+  if(copy?.[key]!=null)return <>{cell(key,copy[key],'—')}<small>복사한 프로필</small></>;
   for(const source of [observation,archive]){
    const value=source?.profile?.[key]??source?.counts[key];
    if(!source||!value)continue;
@@ -71,7 +75,16 @@ export function ResearchTables({targets,results}:{targets:Target[],results:Recor
   const unavailable=[status,reason].filter(Boolean).join(' · ');
   if(t.username){
    const info=r?.profile||profileObservation||archive;
-   profiles.push({id:t.href,label:<>{label}{!info&&<small className="profile-reason">{unavailable}</small>}</>,values:[...Object.keys(profileFields).map(k=>observedCell(k,r?.profile,profileObservation,archive,t.username!)),r?.checkedAt?date(Date.parse(r.checkedAt)):'—']});
+   const copy=copies[t.href];
+   const partial=['profile_picture_url','name','followers_count','follows_count','media_count'].some(k=>r?.profile?.[k]==null&&copy?.[k]==null&&profileObservation?.counts[k]==null&&profileObservation?.profile?.[k]==null&&archive?.counts[k]==null&&archive?.profile?.[k]==null);
+   const sample=(r?.media||[]).map(upload).filter((x):x is Upload=>!!x).sort((a,b)=>b.timestamp.localeCompare(a.timestamp));
+   const timeCell=(post:Upload|undefined,empty:string)=>post?(post.permalink?<a href={post.permalink} target="_blank" rel="noreferrer">{date(Date.parse(post.timestamp))}</a>:date(Date.parse(post.timestamp))):empty;
+   const dates=[timeCell(r?.history?.first,r?.history?.status||(r?.profile?'전체 이력 조회 중':'확인 불가')),timeCell(r?.history?.latest||sample[0],r?.profile?.media_count===0?'공개 게시물 없음':'확인 불가')];
+   const keys=Object.keys(profileFields);
+   const fields=keys.map(k=>observedCell(k,r?.profile,profileObservation,archive,t.username!,copy));
+   fields.splice(keys.indexOf('media_count')+1,0,...dates);
+   profiles.push({id:t.href,label:<>{label}{!info&&!copy&&<small className="profile-reason">{unavailable}</small>}
+    {r&&partial&&!r.publicPending&&<CopiedProfile handle={t.username} onRead={value=>setCopies(old=>({...old,[t.href]:value}))}/>}</>,values:[...fields,r?.checkedAt?date(Date.parse(r.checkedAt)):'—']});
    const enriched=r?.media?.map(row=>supplement(row,evidence.get(researchTarget(String(row.permalink))?.href||'')));
    const usesPublic=r?.media?.some(row=>{const hit=evidence.get(researchTarget(String(row.permalink))?.href||'');return Object.keys(hit?.counts||{}).some(k=>row[k]==null);});
    stats.push({id:t.href,label:<>{label}{usesPublic&&<small>공개 검색 수치 포함</small>}</>,values:analysis(enriched,'—'),notice:enriched?.length?undefined:(r?.profile?(r.mediaStatus==='미제공'?'확인된 게시물 없음':r.mediaStatus):unavailable)});
@@ -91,7 +104,9 @@ export function ResearchTables({targets,results}:{targets:Target[],results:Recor
    }
   }
  }
- return <><p className="research-legend">— 확인되지 않은 항목 · 공개 검색 및 보관본 값에는 출처와 수집 시점을 표시합니다.</p>{profiles.length>0&&<><Table title="계정 정보" first="조회 계정" headers={[...Object.values(profileFields),'수집 시각 (한국시간)']} rows={profiles}/>
+ const profileHeaders=Object.values(profileFields);
+ profileHeaders.splice(Object.keys(profileFields).indexOf('media_count')+1,0,'최초 공개 게시물 (한국시간)','최근 업로드 (한국시간)');
+ return <><p className="research-legend">— 확인되지 않은 항목 · 공개 검색 및 보관본 값에는 출처와 수집 시점을 표시합니다.</p>{profiles.length>0&&<><Table title="계정 정보" first="조회 계정" headers={[...profileHeaders,'수집 시각 (한국시간)']} rows={profiles}/>
  <Table title="게시물 반응과 업로드 주기 · 최근 최대 12건" first="조회 계정" headers={kpis} rows={stats}/></>}
  <Table title="게시물별 상세 정보" first="조회 대상" headers={Object.values(mediaFields)} rows={posts}/>
  {targets.some(t=>!t.username)&&<p>게시물 링크는 공개 검색 수치를 확인합니다. 작성자 아이디도 입력하면 최근 게시물의 API 수치를 함께 확인합니다.</p>}</>;

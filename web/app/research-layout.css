@@ -23,3 +23,7 @@
 .research-table tbody tr > th:first-child { background: var(--paper); }
 .research-table .research-account-break > * { border-top: 3px solid #718797; }
 .research-table .profile-reason { max-width: 10rem; white-space: normal; font-size: .78em; }
+.research-copy { width: 10rem; white-space: normal; font-size: .8rem; margin-top: .35rem; font-weight: normal; }
+.research-copy summary { cursor: pointer; text-decoration: underline; color: var(--navy); }
+.research-copy label { display: block; margin-top: .4rem; }
+.research-copy textarea { width: 100%; }

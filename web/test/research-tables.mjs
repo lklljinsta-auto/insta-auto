@@ -30,3 +30,8 @@ assert.equal(grouped.match(/class="research-account-break"/g)?.length,1);
 assert.ok(grouped.includes('Sample Archive')&&grouped.includes('17<small>공개 보관본')&&!grouped.includes('999'));
 assert.match(grouped,/another<small>입력한 아이디/);
 assert.equal((grouped.match(/<th scope="col">조회 (계정|대상)<\/th>/g)||[]).length,3);
+const timed=render({status:'조회 완료',profile:{media_count:100},history:{status:'전체 이력 확인 불가'},media:[{timestamp:'2026-01-01T01:30:00Z',permalink:'https://www.instagram.com/p/Recent/'}]});
+assert.match(timed,/최초 공개 게시물 \(한국시간\)/);
+assert.match(timed,/최근 업로드 \(한국시간\)/);
+assert.match(timed,/<td>전체 이력 확인 불가<\/td><td><a href="https:\/\/www.instagram.com\/p\/Recent\//);
+assert.match(timed,/<abbr title=.*?중앙값<\/abbr>/);

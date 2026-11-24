@@ -37,7 +37,7 @@ export function readPublicResult(target:Target,hit:{url?:unknown,title?:unknown,
  if(found?.href!==target.href)return null;
  // Instagram's search description starts with labelled counts. Never read numbers out of captions.
  const snippet=typeof hit.snippet==='string'?hit.snippet.slice(0,700).trim():'';
- if(/this account is private|비공개 계정/i.test(snippet))return null;
+ if(/this account is private|비공개 계정/i.test(snippet)&&!(target.username&&profileIdentity(target,hit.title)))return null;
  const counts:Record<string,string>={};
  let rest=snippet;
  for(let i=0;i<4;i++){

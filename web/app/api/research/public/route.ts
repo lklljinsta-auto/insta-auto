@@ -24,13 +24,18 @@ export async function POST(req:Request){
    let indexFailed=false;
    let indexed:PublicObservation|null=null;
    try{
-    const response=await fetch(url,{cache:'no-store',redirect:'manual',signal:deadline});
-    if(!response.ok)throw new Error('index unavailable');
-    const data=await response.json() as {ok?:boolean,results?:Parameters<typeof readPublicResult>[1][]};
-    if(data.ok===false||!Array.isArray(data.results))throw new Error('index unavailable');
-    for(const hit of data.results){
-     const observation=readPublicResult(target,hit);
-     if(observation){indexed=observation;observations.push(indexed);break;}
+    const terms=target.username?[target.href,target.username]:[target.href];
+    for(const term of terms){
+     url.searchParams.set('q',term);
+     const response=await fetch(url,{cache:'no-store',redirect:'manual',signal:deadline});
+     if(!response.ok)throw new Error('index unavailable');
+     const data=await response.json() as {ok?:boolean,results?:Parameters<typeof readPublicResult>[1][]};
+     if(data.ok===false||!Array.isArray(data.results))throw new Error('index unavailable');
+     for(const hit of data.results){
+      const observation=readPublicResult(target,hit);
+      if(observation){indexed=observation;observations.push(indexed);break;}
+     }
+     if(indexed)break;
     }
    }catch{indexFailed=true;}
    if(archive){

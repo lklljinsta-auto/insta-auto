@@ -1,3 +1,4 @@
+import {mediaPage,validCursor} from '../../../lib/upload-history';
 import {discoveryConfig} from '../../../lib/discovery-config';
 import {consoleAccess} from '../../../lib/console-access';
 import {researchTarget} from '../../../lib/research-target';
@@ -8,9 +9,10 @@ const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cac
 export async function POST(req:Request){
  if(!await consoleAccess())return json({error:'등록된 사용자로 로그인하세요.'},403);
  if(req.headers.get('origin')!==new URL(req.url).origin)return json({error:'요청 출처를 확인하세요.'},403);
- const body=await req.json().catch(()=>null) as {input?:unknown}|null;
+ const body=await req.json().catch(()=>null) as {input?:unknown,mode?:unknown,after?:unknown}|null;
  const target=typeof body?.input==='string'?researchTarget(body.input):null;
  if(!target)return json({error:'Instagram 주소 또는 아이디를 확인하세요.'},400);
+ if(body?.mode==='history'&&body.after!=null&&!validCursor(body.after))return json({error:'잘못된 페이지 커서'},400);
  if(!target.username)return json({status:'작성자 아이디 필요'});
  const {token,id,problem}=discoveryConfig();
  if(problem)return json({status:'API 미연결 · '+problem});
@@ -34,6 +36,7 @@ export async function POST(req:Request){
   const code=payload.error?.code;
   let status='조회 불가';
   if(response.status===429||[4,17,32,613].includes(code??0)){status='호출 한도 도달';usage.limited=true;}
+  else if(code===110)status='Meta에서 계정 정보를 제공하지 않음';
   else if(code===190)status='API 재연결 필요';
   else if(code===10||code===200||response.status===403)status='권한 없음';
   else if(response.status>=500)status='조회 오류';
@@ -42,6 +45,12 @@ export async function POST(req:Request){
   return {data:response.ok?payload.business_discovery:null,status,code};
  }
  try{
+  if(body?.mode==='history'){
+   const after=validCursor(body.after)?'.after('+body.after+')':'';
+   const response=await query('media_count,media'+after+'.limit(100){id,permalink,timestamp}');
+   const page=mediaPage(response.data);
+   return json({...page,status:page?'조회 완료':response.status,usage});
+  }
   let result=await query(profileKeys.join(',')+',media.limit(12){'+mediaKeys.join(',')+'}');
   if(!result.data&&result.status!=='호출 한도 도달'&&[10,100,200].includes(result.code??0)){
    result=await query('id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count,media.limit(12){id,permalink,caption,media_type,media_product_type,timestamp,like_count,comments_count,view_count}');
