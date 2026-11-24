@@ -9,3 +9,6 @@ export const drafts=sqliteTable('drafts',{
 export const files=sqliteTable('files',{
  id:text().primaryKey(),owner:text().notNull(),draft:text().notNull().references(()=>drafts.id),name:text().notNull(),size:integer().notNull(),updated:text().notNull(),objectKey:text().notNull()
 });
+export const viewers=sqliteTable('viewers',{
+ email:text().primaryKey(),owner:text().notNull(),added:text().notNull()
+});

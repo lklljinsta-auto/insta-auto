@@ -1,17 +1,17 @@
 import {env} from 'cloudflare:workers';
-import {getChatGPTUser} from '../../chatgpt-auth';
+import {consoleAccess} from '../../../lib/console-access';
 export const dynamic='force-dynamic';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
 export async function GET(){
- const u=await getChatGPTUser(); if(!u)return json({error:'로그인이 필요합니다.'},401);
+ const u=await consoleAccess(); if(!u)return json({error:'등록된 Gmail로 로그인하세요.'},403);
  const db=env.DB!;const [a,d,f]=await db.batch([
-  db.prepare('select id,handle,alias,guide,updated from accounts where owner=? order by handle').bind(u.userId),
-  db.prepare('select * from drafts where owner=? order by updated desc').bind(u.userId),
-  db.prepare('select id,draft,name,size,updated from files where owner=? order by updated desc').bind(u.userId)]);
+  db.prepare('select id,handle,alias,guide,updated from accounts where owner=? order by handle').bind(u.owner),
+  db.prepare('select * from drafts where owner=? order by updated desc').bind(u.owner),
+  db.prepare('select id,draft,name,size,updated from files where owner=? order by updated desc').bind(u.owner)]);
  return json({accounts:a.results,drafts:d.results,files:f.results});
 }
 export async function POST(req:Request){
- const u=await getChatGPTUser();if(!u)return json({error:'로그인이 필요합니다.'},401);
+ const u=await consoleAccess();if(!u?.canEdit)return json({error:'관리자만 변경할 수 있습니다.'},403);
  if(req.headers.get('origin')!==new URL(req.url).origin)return json({error:'요청 출처를 확인하세요.'},403);
  const b=await req.json() as Record<string,unknown>;const val=(k:string)=>String(b[k]??'').trim();
  const db=env.DB!,now=new Date().toISOString(),id=val('id')||crypto.randomUUID();
@@ -24,15 +24,15 @@ export async function POST(req:Request){
   }
   for(const line of guide.sources.split(/\s+/).filter(Boolean)){if(!URL.canParse(line)||!['http:','https:'].includes(new URL(line).protocol))return json({error:'참고 링크는 한 줄에 하나씩 입력하세요.'},400);}
   try{
-   const saved=await db.prepare('insert into accounts(id,owner,handle,alias,guide,updated) values(?,?,?,?,?,?) on conflict(id) do update set handle=excluded.handle,alias=excluded.alias,guide=excluded.guide,updated=excluded.updated where accounts.owner=excluded.owner').bind(id,u.userId,handle,val('alias').slice(0,100),JSON.stringify(guide),now).run();
+   const saved=await db.prepare('insert into accounts(id,owner,handle,alias,guide,updated) values(?,?,?,?,?,?) on conflict(id) do update set handle=excluded.handle,alias=excluded.alias,guide=excluded.guide,updated=excluded.updated where accounts.owner=excluded.owner').bind(id,u.owner,handle,val('alias').slice(0,100),JSON.stringify(guide),now).run();
    if(!saved.meta.changes)return json({error:'접근할 수 없는 계정입니다.'},403);
   }catch(e){if(String(e).includes('UNIQUE'))return json({error:'같은 아이디가 이미 있습니다.'},409);throw e;}
  }else if(b.type==='draft'){
-  const a=await db.prepare('select id from accounts where id=? and owner=?').bind(val('account'),u.userId).first();
+  const a=await db.prepare('select id from accounts where id=? and owner=?').bind(val('account'),u.owner).first();
   if(!a||!['feed','reel'].includes(val('format'))||!val('title')||val('title').length>300||val('caption').length>20000)return json({error:'운영 계정·제목·형식을 확인하세요.'},400);
   const scheduled=val('schedule')?new Date(val('schedule')):null;
   if(scheduled&&isNaN(+scheduled))return json({error:'날짜를 확인하세요.'},400);
-  const saved=await db.prepare('insert into drafts(id,owner,account,title,caption,format,source,schedule,updated) values(?,?,?,?,?,?,?,?,?) on conflict(id) do update set title=excluded.title,caption=excluded.caption,format=excluded.format,source=excluded.source,schedule=excluded.schedule,updated=excluded.updated where drafts.owner=excluded.owner and drafts.account=excluded.account').bind(id,u.userId,val('account'),val('title'),val('caption'),val('format'),val('source').slice(0,6000),scheduled?.toISOString()??null,now).run();
+  const saved=await db.prepare('insert into drafts(id,owner,account,title,caption,format,source,schedule,updated) values(?,?,?,?,?,?,?,?,?) on conflict(id) do update set title=excluded.title,caption=excluded.caption,format=excluded.format,source=excluded.source,schedule=excluded.schedule,updated=excluded.updated where drafts.owner=excluded.owner and drafts.account=excluded.account').bind(id,u.owner,val('account'),val('title'),val('caption'),val('format'),val('source').slice(0,6000),scheduled?.toISOString()??null,now).run();
   if(!saved.meta.changes)return json({error:'초안의 계정을 확인하세요.'},409);
  }else return json({error:'지원하지 않는 작업입니다.'},400);
  return json({id});
