@@ -1,3 +1,4 @@
+import {archivedProfile} from '../../../../lib/public-profile';
 import {consoleAccess} from '../../../../lib/console-access';
 import {researchTarget} from '../../../../lib/research-target';
 import {readPublicResult,type PublicObservation} from '../../../../lib/public-counts';
@@ -19,6 +20,9 @@ export async function POST(req:Request){
    const target=queue.shift()!;
    const url=new URL('https://freeserp.ai/api.php');
    url.search=new URLSearchParams({index:'web',q:target.href,size:'5'}).toString();
+   const archive=target.username?archivedProfile(target,deadline).then(value=>({value,failed:false}),()=>({value:null,failed:true})):null;
+   let indexFailed=false;
+   let indexed:PublicObservation|null=null;
    try{
     const response=await fetch(url,{cache:'no-store',redirect:'manual',signal:deadline});
     if(!response.ok)throw new Error('index unavailable');
@@ -26,9 +30,15 @@ export async function POST(req:Request){
     if(data.ok===false||!Array.isArray(data.results))throw new Error('index unavailable');
     for(const hit of data.results){
      const observation=readPublicResult(target,hit);
-     if(observation){observations.push(observation);break;}
+     if(observation){indexed=observation;observations.push(indexed);break;}
     }
-   }catch{failed++;}
+   }catch{indexFailed=true;}
+   if(archive){
+    const snapshot=await archive;
+    if(snapshot.value){observations.push(snapshot.value);indexFailed=false;}
+    else if(snapshot.failed&&!indexed)indexFailed=true;
+   }
+   if(indexFailed)failed++;
   }
  }
  await Promise.all([work(),work(),work()]);

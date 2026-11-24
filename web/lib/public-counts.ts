@@ -3,11 +3,11 @@ import type {Fields, Result} from './research-fields';
 
 const profileKeys=['followers_count','follows_count','media_count'];
 const postKeys=['like_count','comments_count'];
-export type PublicObservation={url:string,counts:Record<string,string>,capturedAt:string|null};
+export type PublicObservation={url:string,counts:Record<string,string>,profile?:Record<string,string>,source?:'archive',capturedAt:string|null};
 export type PublicReport={observations:PublicObservation[],failed:number};
 export function publicQueries(target:Target,result:Result){
  const links=new Set<string>();
- if(!target.username || profileKeys.some(k=>result.profile?.[k]==null))links.add(target.href);
+ if(!target.username || [...profileKeys,'username','name','profile_picture_url'].some(k=>result.profile?.[k]==null||result.profile[k]===''))links.add(target.href);
  for(const row of result.media||[]){
   if(typeof row.permalink!=='string')continue;
   const post=researchTarget(row.permalink);
@@ -26,12 +26,17 @@ const labels:Record<string,string>={
 const amount=String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:[KMB천만억])?`;
 const english=new RegExp('^('+amount+')\\s+(followers?|following|posts?|likes?|comments?|views?)\\b','i');
 const korean=new RegExp('^(팔로워|팔로잉|게시물|좋아요|댓글|조회수|조회)\\s*('+amount+')(?:\\s*[명개회])?(?![\\d가-힣])','i');
-export function readPublicResult(target:Target,hit:{url?:unknown,snippet?:unknown,crawled_at?:unknown,source?:{captured_at?:unknown}}):PublicObservation|null{
- if(typeof hit?.url!=='string'||typeof hit.snippet!=='string'||!/^https:\/\//i.test(hit.url))return null;
+function profileIdentity(target:Target,title:unknown){
+ const match=typeof title==='string' && /^(.{0,160}?)\s*\(@([a-z0-9._]{1,30})\)(?:\s*[•|·–—-].*|\s*on Instagram.*|\s*)$/i.exec(title.trim());
+ if(!match||match[2].toLowerCase()!==target.username)return;
+ return match[1].trim()?{username:match[2],name:match[1].trim()}:{username:match[2]};
+}
+export function readPublicResult(target:Target,hit:{url?:unknown,title?:unknown,snippet?:unknown,crawled_at?:unknown,source?:{captured_at?:unknown}}):PublicObservation|null{
+ if(typeof hit?.url!=='string'||!/^https:\/\//i.test(hit.url))return null;
  const found=researchTarget(hit.url);
  if(found?.href!==target.href)return null;
  // Instagram's search description starts with labelled counts. Never read numbers out of captions.
- const snippet=hit.snippet.slice(0,700).trim();
+ const snippet=typeof hit.snippet==='string'?hit.snippet.slice(0,700).trim():'';
  if(/this account is private|비공개 계정/i.test(snippet))return null;
  const counts:Record<string,string>={};
  let rest=snippet;
@@ -46,9 +51,10 @@ export function readPublicResult(target:Target,hit:{url?:unknown,snippet?:unknow
   if(!/^\s*[,·|•]\s*/.test(tail))break;
   rest=tail.replace(/^\s*[,·|•]\s*/,'');
  }
- if(!Object.keys(counts).length)return null;
+ const profile=target.username?profileIdentity(target,hit.title):undefined;
+ if(!Object.keys(counts).length&&!profile)return null;
  const stamp=hit.source?.captured_at??hit.crawled_at;
- return {url:target.href,counts,capturedAt:typeof stamp==='string'&&Number.isFinite(Date.parse(stamp))?new Date(stamp).toISOString():null};
+ return {url:target.href,counts,...(profile?{profile:profile as Record<string,string>}:{}),capturedAt:typeof stamp==='string'&&Number.isFinite(Date.parse(stamp))?new Date(stamp).toISOString():null};
 }
 export function publicNumber(display:string):number|null{
  const m=/^(\d[\d,]*(?:\.\d+)?)\s*([kmb천만억]?)$/i.exec(display);

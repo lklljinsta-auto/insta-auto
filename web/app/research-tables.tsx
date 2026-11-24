@@ -31,9 +31,9 @@ function cell(key:string,value:Fields[string]|undefined,status:string):ReactNode
  if(typeof value==='number')return num(value);
  return value;
 }
-type Row={id:string,label:ReactNode,values:ReactNode[],notice?:string};
+type Row={id:string,label:ReactNode,values:ReactNode[],notice?:string,group?:string};
 function Table({title,first,headers,rows}:{title:string,first:string,headers:string[],rows:Row[]}){
- return <section className="panel section-panel"><h2>{title}</h2><div className="research-scroll" tabIndex={0} aria-label={title}><table className="research-table"><thead><tr><th scope="col">{first}</th>{headers.map(h=><th key={h} scope="col">{h}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id}><th scope="row">{r.label}</th>{r.notice?<td colSpan={headers.length}>{r.notice}</td>:r.values.map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody></table></div></section>;
+ return <section className="panel section-panel"><h2>{title}</h2><div className="research-scroll" tabIndex={0} aria-label={title}><table className="research-table"><thead><tr><th scope="col">{first}</th>{headers.map(h=><th key={h} scope="col">{h}</th>)}</tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} className={i>0&&r.group&&r.group!==rows[i-1].group?'research-account-break':undefined}><th scope="row">{r.label}</th>{r.notice?<td colSpan={headers.length}>{r.notice}</td>:r.values.map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody></table></div></section>;
 }
 const kpis=['평균 조회수','조회수 중앙값','댓글 합계','평균 댓글','댓글 중앙값','좋아요 합계','평균 좋아요','좋아요 중앙값','평균 업로드 간격','최근 게시 시각','표본 시작 시각','피드 수','릴스 수','조회한 게시물 수'];
 function analysis(rows:Fields[]|undefined|null,missing:string){
@@ -48,23 +48,30 @@ function analysis(rows:Fields[]|undefined|null,missing:string){
 }
 export function ResearchTables({targets,results}:{targets:Target[],results:Record<string,Result>}){
  const profiles:Row[]=[],stats:Row[]=[],posts:Row[]=[];
- function observedCell(key:string,row:Fields|undefined,observation:PublicObservation|undefined){
+ function observedCell(key:string,row:Fields|undefined,observation:PublicObservation|undefined,archive?:PublicObservation,inputUsername?:string){
   if(row?.[key]!=null&&row[key]!=='')return cell(key,row[key],'—');
-  const value=observation?.counts[key];
-  if(value===undefined||!observation)return '—';
-  return <>{value}<small>공개 검색 · {observation.capturedAt?new Date(observation.capturedAt).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'}):'시점 미상'}</small></>;
+  for(const source of [observation,archive]){
+   const value=source?.profile?.[key]??source?.counts[key];
+   if(!source||!value)continue;
+   const rendered=cell(key,value,'—');
+   return <>{rendered}<small>{source.source==='archive'?'공개 보관본':'공개 검색'} · {source.capturedAt?new Date(source.capturedAt).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'}):'시점 미상'}</small></>;
+  }
+  if(key==='username'&&inputUsername)return <>{inputUsername}<small>입력한 아이디</small></>;
+  return '—';
  }
  for(const t of targets){
   const r=results[t.href],status=r?.status||'조회 중';
-  const evidence=new Map(r?.publicReport?.observations.map(o=>[o.url,o])||[]);
+  const observations=r?.publicReport?.observations||[];
+  const evidence=new Map(observations.filter(o=>!o.source).map(o=>[o.url,o]));
+  const archive=observations.find(o=>o.source==='archive'&&o.url===t.href);
   const profileObservation=evidence.get(t.href);
   const link=(href:string)=><a href={href} target="_blank" rel="noreferrer">{t.label}</a>;
   const label=link(t.href);
   const reason=r?.publicPending?'공개 수치 확인 중':r?.publicReport?.failed?'공개 검색 응답 없음':r?.publicReport?'공개 검색에서 확인된 수치 없음':'';
   const unavailable=[status,reason].filter(Boolean).join(' · ');
   if(t.username){
-   const info=r?.profile||profileObservation;
-   profiles.push({id:t.href,label,notice:info?undefined:unavailable,values:[...Object.keys(profileFields).map(k=>observedCell(k,r?.profile,profileObservation)),r?.checkedAt?date(Date.parse(r.checkedAt)):'—']});
+   const info=r?.profile||profileObservation||archive;
+   profiles.push({id:t.href,label:<>{label}{!info&&<small className="profile-reason">{unavailable}</small>}</>,values:[...Object.keys(profileFields).map(k=>observedCell(k,r?.profile,profileObservation,archive,t.username!)),r?.checkedAt?date(Date.parse(r.checkedAt)):'—']});
    const enriched=r?.media?.map(row=>supplement(row,evidence.get(researchTarget(String(row.permalink))?.href||'')));
    const usesPublic=r?.media?.some(row=>{const hit=evidence.get(researchTarget(String(row.permalink))?.href||'');return Object.keys(hit?.counts||{}).some(k=>row[k]==null);});
    stats.push({id:t.href,label:<>{label}{usesPublic&&<small>공개 검색 수치 포함</small>}</>,values:analysis(enriched,'—'),notice:enriched?.length?undefined:(r?.profile?(r.mediaStatus==='미제공'?'확인된 게시물 없음':r.mediaStatus):unavailable)});
@@ -76,15 +83,15 @@ export function ResearchTables({targets,results}:{targets:Target[],results:Recor
    else if(profileObservation)media=[{permalink:t.href}];
   }
   if(!media?.length){
-   posts.push({id:t.href,label,values:[],notice:r?.profile?'확인된 게시물 없음':unavailable});
+   posts.push({id:t.href,group:t.href,label,values:[],notice:r?.profile?'확인된 게시물 없음':unavailable});
   }else{
    for(const [i,item] of media.entries()){
     const href=typeof item.permalink==='string'?researchTarget(item.permalink)?.href:undefined;
-    posts.push({id:t.href+i,label:href?link(href):label,values:Object.keys(mediaFields).map(k=>observedCell(k,item,href?evidence.get(href):undefined))});
+    posts.push({id:t.href+i,group:t.href,label:href?link(href):label,values:Object.keys(mediaFields).map(k=>observedCell(k,item,href?evidence.get(href):undefined))});
    }
   }
  }
- return <><p className="research-legend">— 확인된 수치 없음 · 공개 검색 수치는 검색 당시의 표기값입니다.</p>{profiles.length>0&&<><Table title="계정 정보" first="조회 계정" headers={[...Object.values(profileFields),'수집 시각 (한국시간)']} rows={profiles}/>
+ return <><p className="research-legend">— 확인되지 않은 항목 · 공개 검색 및 보관본 값에는 출처와 수집 시점을 표시합니다.</p>{profiles.length>0&&<><Table title="계정 정보" first="조회 계정" headers={[...Object.values(profileFields),'수집 시각 (한국시간)']} rows={profiles}/>
  <Table title="게시물 반응과 업로드 주기 · 최근 최대 12건" first="조회 계정" headers={kpis} rows={stats}/></>}
  <Table title="게시물별 상세 정보" first="조회 대상" headers={Object.values(mediaFields)} rows={posts}/>
  {targets.some(t=>!t.username)&&<p>게시물 링크는 공개 검색 수치를 확인합니다. 작성자 아이디도 입력하면 최근 게시물의 API 수치를 함께 확인합니다.</p>}</>;

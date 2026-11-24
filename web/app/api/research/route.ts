@@ -16,6 +16,7 @@ export async function POST(req:Request){
  if(problem)return json({status:'API 미연결 · '+problem});
  const url=new URL('https://graph.facebook.com/v27.0/'+id);
  const base='id,username,biography,followers_count,media_count';
+ const profileOnly='username,name,profile_picture_url,followers_count,follows_count,media_count';
  const profileKeys=Object.keys(profileFields),mediaKeys=Object.keys(mediaFields);
  let usage:UsageReport|null=null;
  async function query(fields:string){
@@ -51,8 +52,10 @@ export async function POST(req:Request){
   }
   let mediaStatus='미제공';
   if(!result.data&&result.status!=='호출 한도 도달'&&[10,100,200].includes(result.code??0)){
-   mediaStatus=result.status;result=await query(base);
+   mediaStatus=result.status;result=await query(profileOnly);
+   if(!result.data&&[10,100,200].includes(result.code??0))result=await query(base);
   }
+  if(!result.data&&result.code===110){mediaStatus=result.status;result=await query(profileOnly);}
   if(!result.data)return json({status:result.status,usage});
   const profile=result.data;
   const rows=(profile.media as {data?:Record<string,unknown>[]} | undefined)?.data;

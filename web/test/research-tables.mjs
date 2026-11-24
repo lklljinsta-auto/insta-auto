@@ -21,3 +21,12 @@ const long=render({status:'조회 완료',profile:{},media:[{caption:'긴 캡션
 assert.match(long,/<details class="research-long-text"><summary>[^\n<]{1,50}<\/summary>/);
 const indexed=render({status:'조회 불가',publicReport:{failed:0,observations:[{url:t.href,counts:{followers_count:'1.2만'},capturedAt:null}]}});
 assert.match(indexed,/1.2만<small>공개 검색/);
+const second={href:'https://www.instagram.com/another/',username:'another',label:'@another'};
+const grouped=renderToStaticMarkup(React.createElement(module.exports.ResearchTables,{targets:[t,second],results:{
+ [t.href]:{status:'조회 완료',profile:{followers_count:0},media:[{like_count:1},{like_count:2}],publicReport:{failed:0,observations:[{url:t.href,source:'archive',counts:{followers_count:'999',follows_count:'17'},profile:{name:'Sample Archive'},capturedAt:'2026-11-20'}]}},
+ [second.href]:{status:'조회 불가'}
+}}));
+assert.equal(grouped.match(/class="research-account-break"/g)?.length,1);
+assert.ok(grouped.includes('Sample Archive')&&grouped.includes('17<small>공개 보관본')&&!grouped.includes('999'));
+assert.match(grouped,/another<small>입력한 아이디/);
+assert.equal((grouped.match(/<th scope="col">조회 (계정|대상)<\/th>/g)||[]).length,3);

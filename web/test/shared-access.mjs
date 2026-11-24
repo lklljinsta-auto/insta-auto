@@ -151,3 +151,21 @@ assert.equal((await publicRoute.POST(post({links:['https://untrusted.example/']}
 user('other','nonmember@example.test');
 assert.equal((await publicRoute.POST(post({links:[exact]}))).status,403);
 console.log('PASS public numeric fallback, Korean and English counts, exact URL, zero precedence, private profile, access and network failure');
+const {snapshotProfile}=await routes('lib/public-profile.ts');
+const tags=new Map(Object.entries({'og:url':exact,'og:title':'표시 이름 (@sample) • Instagram photos and videos','og:description':'100 Followers, 0 Following, 22 Posts','og:image':'https://scontent.cdninstagram.com/avatar.jpg'}));
+const saved=snapshotProfile(profileTarget,tags,stamp);
+assert.equal(saved.profile.name,'표시 이름');
+assert.equal(saved.profile.profile_picture_url,tags.get('og:image'));
+assert.equal(saved.counts.follows_count,'0');
+assert.equal(publicCounts.readPublicResult(profileTarget,{url:exact,title:tags.get('og:title')}).profile.name,'표시 이름');
+assert.equal(snapshotProfile(profileTarget,new Map([...tags,['og:url','https://www.instagram.com/other/']]),stamp),null);
+assert.equal(snapshotProfile(profileTarget,new Map([...tags,['og:image','https://cdninstagram.com.example.org/wrong.jpg']]),stamp).profile.profile_picture_url,undefined);
+assert.deepEqual(publicCounts.publicQueries(profileTarget,{profile:{followers_count:2,follows_count:0,media_count:1,username:'sample',name:'Sample'}}),[exact]);
+user('admin-id','admin@example.test');
+globalThis.fetch=async url=>{
+ if(url.searchParams.get('fields').includes('media.limit'))return Response.json({error:{code:110}},{status:400});
+ return Response.json({business_discovery:{username:'sample',follows_count:0,name:'계정',profile_picture_url:'https://example.org/pic.jpg'}});
+};
+const standalone=await (await lookup('sample')).json();
+assert.equal(standalone.profile.name,'계정');assert.equal(standalone.profile.follows_count,0);assert.equal(standalone.media,null);
+console.log('PASS independent profile fields, verified public metadata and account-only retry');

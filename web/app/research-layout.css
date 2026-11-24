@@ -12,3 +12,14 @@
 .research-long-text summary { list-style: none; }
 .research-long-text[open] div { max-height: 12rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .5rem; }
 .research-legend { margin: 16px 0 0; color: var(--muted); font-size: .9rem; }
+.research-scroll { position: relative; isolation: isolate; }
+.research-table tr > th:first-child {
+ position: sticky;
+ left: 0;
+ z-index: 2;
+ box-shadow: inset -1px 0 var(--line);
+}
+.research-table thead tr > th:first-child { z-index: 3; background: #eeeae2; }
+.research-table tbody tr > th:first-child { background: var(--paper); }
+.research-table .research-account-break > * { border-top: 3px solid #718797; }
+.research-table .profile-reason { max-width: 10rem; white-space: normal; font-size: .78em; }
