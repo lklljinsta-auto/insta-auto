@@ -6,7 +6,7 @@ type Data={accounts:Row[],drafts:Row[],files:Row[]};
 const tabs=['관제 홈','운영 계정','콘텐츠·예약','파일 보관'];
 const guides={topic:'주제',audience:'대상 독자',voice:'말투',avoid:'금지 표현',sources:'계정 전용 참고 링크',feed:'피드 프롬프트',reel:'릴스 프롬프트'};
 const local=(v:string)=>v?new Date(+new Date(v)+9*3600000).toISOString().slice(0,16):'';
-export default function Console({canEdit}:{canEdit:boolean}){
+export default function Console({canEdit,roleLabel}:{canEdit:boolean,roleLabel:string}){
  const menus=canEdit?[...tabs,'열람자 관리']:tabs;
  const [tab,T]=useState(0),[data,D]=useState<Data|null>(null),[msg,M]=useState(''),[busy,B]=useState(false),[edit,E]=useState<Row|null>(null),[account,A]=useState('');
  const load=async()=>{const r=await fetch('/api/console',{cache:'no-store'});if(!r.ok)throw Error('서버 기록을 불러오지 못했습니다. 새로고침해 주세요.');D(await r.json());};
@@ -24,7 +24,7 @@ export default function Console({canEdit}:{canEdit:boolean}){
  const who=(id:string)=>{const a=accounts.find(x=>x.id===id);return a?(a.alias||'@'+a.handle):'';};
  const guide=edit?.guide?JSON.parse(edit.guide):{};
  return <div className="shell"><aside><div className="brand"><img src="/favicon.svg" alt=""/><strong>인스타오토</strong></div><nav>{menus.map((v,i)=><button key={v} aria-current={tab===i?'page':undefined} onClick={()=>nav(i)}>{v}</button>)}</nav></aside><main>
- <header><h1>{menus[tab]}</h1><span>{canEdit?'관리자':'열람 전용'}</span></header>
+ <header><h1>{menus[tab]}</h1><span>{roleLabel}</span></header>
  {msg&&<p role="status" className="notice">{msg}</p>}
  {!data?<p>운영 기록을 불러오는 중입니다.</p>:<>
  {tab===4&&canEdit&&<Viewers/>}
