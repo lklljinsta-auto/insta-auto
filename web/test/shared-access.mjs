@@ -95,7 +95,7 @@ Object.assign(globalThis.testEnv,{META_DISCOVERY_ACCESS_TOKEN:' fixture ',META_D
 globalThis.fetch=async(url,opts)=>{
  assert.equal(url.hostname,'graph.facebook.com');
  assert.equal(opts.headers.Authorization,'Bearer fixture');
- assert.equal(opts.cache,'no-store');
+ assert.equal(opts.cache,'no-store');assert.equal(opts.redirect,'manual');
  return Response.json({business_discovery:{username:'sample',followers_count:0,media:{data:[{like_count:0,comments_count:3}]}}});
 };
 const result=await lookup('@SAMPLE');assert.match(result.headers.get('cache-control'),/no-store/);
@@ -106,8 +106,10 @@ for(const [code,status] of [[200,'권한 없음'],[190,'API 재연결 필요'],[
  globalThis.fetch=async()=>Response.json({error:{code}},{status:400});
  assert.equal((await (await lookup('sample')).json()).status,status);
 }
+globalThis.fetch=async()=>new Response(null,{status:302,headers:{location:'https://elsewhere.example/'}});
+assert.equal((await (await lookup('sample')).json()).status,'Meta 리디렉션으로 조회 중단');
 globalThis.fetch=async()=>{throw Error('unreachable');};
-assert.equal((await (await lookup('sample')).json()).status,'조회 오류');
+assert.equal((await (await lookup('sample')).json()).status,'Meta 요청 전송 오류');
 assert.equal(db.prepare('select count(*) as n from research_targets').get().n,0);
 console.log('PASS on-demand research: profile, post, unconnected, zero vs missing, denied, rate limit, no persistence.');
 const {readAppUsage,mergeUsage}=await routes('lib/meta-usage.ts');

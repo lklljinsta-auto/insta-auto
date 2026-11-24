@@ -20,10 +20,15 @@ export async function POST(req:Request){
  let usage:UsageReport|null=null;
  async function query(fields:string){
   url.searchParams.set('fields','business_discovery.username('+target!.username+'){'+fields+'}');
-  const response=await fetch(url,{headers:{Authorization:'Bearer '+token},redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000)});
+  const response=await fetch(url,{headers:{Authorization:'Bearer '+token},redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(8000)});
   const receivedAt=new Date().toISOString();
   const sample=readAppUsage(response.headers.get('x-app-usage'),receivedAt);
   usage=mergeUsage(usage,{receivedAt,sample,latestHasUsage:!!sample,limited:response.status===429});
+  // Workers supports manual redirects. Keep the bearer token on the original host.
+  if(response.status>=300 && response.status<400){
+   console.warn('instagram.research.redirect', {httpStatus:response.status});
+   return {data:null,status:'Meta 리디렉션으로 조회 중단',code:undefined};
+  }
   const payload=await response.json() as {business_discovery?:Record<string,unknown>,error?:{code:number}};
   const code=payload.error?.code;
   let status='조회 불가';
@@ -54,5 +59,10 @@ export async function POST(req:Request){
    typeof obj[key]==='number'||typeof obj[key]==='boolean'||typeof obj[key]==='string'?obj[key]:null]));
   return json({status:'조회 완료',usage,checkedAt:new Date().toISOString(),profile:clean(profile,profileKeys),
    media:Array.isArray(rows)?rows.slice(0,12).map(row=>clean(row,mediaKeys)):null,mediaStatus});
- }catch{return json({status:'조회 오류',usage});}
+ }catch(error){
+  const kind=error instanceof Error ? error.name : 'UnknownError';
+  console.warn('instagram.research.failed', {kind});
+  const status=kind==='TimeoutError'||kind==='AbortError'?'Meta 응답 시간 초과':kind==='SyntaxError'?'Meta 응답 형식 오류':'Meta 요청 전송 오류';
+  return json({status,usage});
+ }
 }
