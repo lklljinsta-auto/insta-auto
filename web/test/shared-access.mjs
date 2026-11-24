@@ -20,7 +20,7 @@ function user(id,email){globalThis.testUser={userId:id,email};}
 function post(body){return new Request('https://site.test/api',{method:'POST',headers:{origin:'https://site.test'},body:JSON.stringify(body)});}
 const access=await routes('lib/console-access.ts');
 for(const [userId,email,label] of [['one','admin@example.test','메인 관리자'],['two','second@gmail.com','서브 관리자']]){
- assert.deepEqual(await access.consoleAccess({userId,email}),{owner:'shared',canEdit:true,label});
+ assert.deepEqual(await access.consoleAccess({userId,email}),{owner:'shared',canEdit:true,manageUsers:true,label});
 }
 const fileReq=new Request('https://site.test/api/files?id=f1');
 user('admin-id','admin@example.test');
@@ -43,11 +43,22 @@ assert.equal((await v.POST(post({action:'add',email:' Guest@Gmail.com '}))).stat
 user('guest-id','guest@gmail.com');
 const shared=await (await c.GET()).json();assert.equal(shared.accounts[0].id,'a1');assert.equal(shared.drafts[0].id,'d1');assert.equal(shared.files[0].id,'f1');
 assert.equal(await (await f.GET(fileReq)).text(),'stored-key');
-assert.equal((await c.POST(post({type:'account',handle:'x'}))).status,403);
-assert.equal((await f.POST(post({}))).status,403);assert.equal((await v.GET()).status,403);
+for(let i=2;i<=5;i++){
+ assert.equal((await c.POST(post({type:'account',id:'a'+i,handle:'account_'+i,feed:'feed '+i,reel:'reel '+i}))).status,200);
+}
+assert.equal((await (await c.GET()).json()).accounts.length,5);
+for(let i=2;i<=5;i++){
+ assert.equal((await c.POST(post({type:'draft',account:'a'+i,format:i%2?'reel':'feed',title:'item '+i}))).status,200);
+}
+assert.equal((await (await c.GET()).json()).drafts.length,5);
+assert.equal((await c.POST(post({type:'research',targets:['https://www.instagram.com/test/']}))).status,200);
+assert.equal((await (await c.GET()).json()).targets.length,1);
+assert.equal((await c.POST(post({type:'remove',kind:'account',id:'a1'}))).status,409);
+assert.equal((await v.POST(post({action:'add',email:'another@gmail.com'}))).status,403);
+assert.equal((await f.POST(post({}))).status,413);assert.equal((await v.GET()).status,403);
 user('second-id','second@gmail.com');
 assert.equal((await v.GET()).status,200);
 assert.equal((await v.POST(post({action:'remove',email:'guest@gmail.com'}))).status,200);
 user('guest-id','guest@gmail.com');assert.equal((await c.GET()).status,403);assert.equal((await f.GET(fileReq)).status,403);
 globalThis.testUser=null;assert.equal((await c.GET()).status,403);
-console.log('PASS shared view, owner edits, unlisted access, download and revocation');
+console.log('PASS shared workspace: five accounts and drafts, operator writes, admin-only user management, revocation');

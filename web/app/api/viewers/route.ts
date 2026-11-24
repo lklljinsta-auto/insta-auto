@@ -4,13 +4,13 @@ export const dynamic='force-dynamic';
 const result=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store'}});
 export async function GET(){
  const auth=await consoleAccess();
- if(!auth?.canEdit)return result({error:'관리자만 열람자를 관리할 수 있습니다.'},403);
+ if(!auth?.manageUsers)return result({error:'관리자만 사용자를 관리할 수 있습니다.'},403);
  const list=await env.DB!.prepare('select email from viewers where owner=? order by email').bind(auth.owner).all();
  return result({viewers:list.results});
 }
 export async function POST(req:Request){
  const auth=await consoleAccess();
- if(!auth?.canEdit)return result({error:'관리자만 열람자를 관리할 수 있습니다.'},403);
+ if(!auth?.manageUsers)return result({error:'관리자만 사용자를 관리할 수 있습니다.'},403);
  if(req.headers.get('origin')!==new URL(req.url).origin)return result({error:'요청 출처를 확인하세요.'},403);
  const body=await req.json() as {email?:string,action?:string};
  const email=String(body.email??'').trim().toLowerCase();

@@ -13,8 +13,8 @@ export async function consoleAccess(user?:ChatGPTUser){
  const email=u.email.trim().toLowerCase();
  if(isConsoleAdmin(email)){
   const label=email===env.CONSOLE_OWNER_EMAIL.trim().toLowerCase()?'메인 관리자':'서브 관리자';
-  return {owner:env.CONSOLE_SHARED_WORKSPACE?.trim()||u.userId,canEdit:true,label};
+  return {owner:env.CONSOLE_SHARED_WORKSPACE?.trim()||u.userId,canEdit:true,manageUsers:true,label};
  }
  const grant=await env.DB!.prepare('select owner from viewers where email=?').bind(email).first<{owner:string}>();
- return grant?{owner:grant.owner,canEdit:false,label:'열람 전용'}:null;
+ return grant?{owner:grant.owner,canEdit:true,manageUsers:false,label:'운영 사용자'}:null;
 }

@@ -12,3 +12,7 @@ export const files=sqliteTable('files',{
 export const viewers=sqliteTable('viewers',{
  email:text().primaryKey(),owner:text().notNull(),added:text().notNull()
 });
+
+export const researchTargets=sqliteTable('research_targets',{
+ id:text().primaryKey(),owner:text().notNull(),href:text().notNull(),added:text().notNull()
+},t=>[uniqueIndex('owner_target').on(t.owner,t.href)]);
