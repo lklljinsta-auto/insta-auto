@@ -1,6 +1,7 @@
 'use client';
 import {useState,type ReactNode} from 'react';
 import {researchTarget,type Target} from '../lib/research-target';
+import {supplement,type PublicObservation} from '../lib/public-counts';
 import {profileFields,mediaFields,summarize,intervals,type Fields,type Result} from '../lib/research-fields';
 
 const num=(v:number)=>v.toLocaleString('ko-KR',{maximumFractionDigits:1});
@@ -17,16 +18,22 @@ function cell(key:string,value:Fields[string]|undefined,status:string):ReactNode
  if(value==null||value==='')return status;
  if(key==='profile_picture_url'){const src=url(value);return src?<Photo src={src}/>:status;}
  if(['permalink','website','media_url','thumbnail_url'].includes(key)){
-  const href=url(value);return href?<a href={href} target="_blank" rel="noreferrer">{key==='website'?new URL(href).hostname:'열기 ↗'}</a>:String(value);
+  const href=url(value);return href?<a href={href} target="_blank" rel="noreferrer">{key==='website'?new URL(href).hostname:'열기 ↗'}</a>:status;
  }
  if(key==='timestamp'&&typeof value==='string'&&Number.isFinite(Date.parse(value)))return date(Date.parse(value));
+ if(typeof value==='string'&&['caption','biography','alt_text'].includes(key)){
+  const text=value.trim(),preview=text.replace(/\s+/g,' ');
+  if(!preview)return status;
+  if(preview.length<=44&&text===preview)return preview;
+  return <details className="research-long-text"><summary>{preview.slice(0,44)}{preview.length>44?'…':''}</summary><div>{text}</div></details>;
+ }
  if(typeof value==='boolean')return value?'예':'아니요';
  if(typeof value==='number')return num(value);
  return value;
 }
-type Row={id:string,label:ReactNode,values:ReactNode[]};
+type Row={id:string,label:ReactNode,values:ReactNode[],notice?:string};
 function Table({title,first,headers,rows}:{title:string,first:string,headers:string[],rows:Row[]}){
- return <section className="panel section-panel"><h2>{title}</h2><div className="research-scroll" tabIndex={0} aria-label={title}><table className="research-table"><thead><tr><th scope="col">{first}</th>{headers.map(h=><th key={h} scope="col">{h}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id}><th scope="row">{r.label}</th>{r.values.map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody></table></div></section>;
+ return <section className="panel section-panel"><h2>{title}</h2><div className="research-scroll" tabIndex={0} aria-label={title}><table className="research-table"><thead><tr><th scope="col">{first}</th>{headers.map(h=><th key={h} scope="col">{h}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id}><th scope="row">{r.label}</th>{r.notice?<td colSpan={headers.length}>{r.notice}</td>:r.values.map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody></table></div></section>;
 }
 const kpis=['평균 조회수','조회수 중앙값','댓글 합계','평균 댓글','댓글 중앙값','좋아요 합계','평균 좋아요','좋아요 중앙값','평균 업로드 간격','최근 게시 시각','표본 시작 시각','피드 수','릴스 수','조회한 게시물 수'];
 function analysis(rows:Fields[]|undefined|null,missing:string){
@@ -41,23 +48,44 @@ function analysis(rows:Fields[]|undefined|null,missing:string){
 }
 export function ResearchTables({targets,results}:{targets:Target[],results:Record<string,Result>}){
  const profiles:Row[]=[],stats:Row[]=[],posts:Row[]=[];
+ function observedCell(key:string,row:Fields|undefined,observation:PublicObservation|undefined){
+  if(row?.[key]!=null&&row[key]!=='')return cell(key,row[key],'—');
+  const value=observation?.counts[key];
+  if(value===undefined||!observation)return '—';
+  return <>{value}<small>공개 검색 · {observation.capturedAt?new Date(observation.capturedAt).toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'}):'시점 미상'}</small></>;
+ }
  for(const t of targets){
-  const r=results[t.href],status=r?.status||'조회 중',missing=r?.profile?'미제공':status;
-  const label=<a href={t.href} target="_blank" rel="noreferrer">{t.label}</a>;
+  const r=results[t.href],status=r?.status||'조회 중';
+  const evidence=new Map(r?.publicReport?.observations.map(o=>[o.url,o])||[]);
+  const profileObservation=evidence.get(t.href);
+  const link=(href:string)=><a href={href} target="_blank" rel="noreferrer">{t.label}</a>;
+  const label=link(t.href);
+  const reason=r?.publicPending?'공개 수치 확인 중':r?.publicReport?.failed?'공개 검색 응답 없음':r?.publicReport?'공개 검색에서 확인된 수치 없음':'';
+  const unavailable=[status,reason].filter(Boolean).join(' · ');
   if(t.username){
-   profiles.push({id:t.href,label,values:[...Object.keys(profileFields).map(k=>cell(k,r?.profile?.[k],missing)),r?.checkedAt?date(Date.parse(r.checkedAt)):status]});
-   stats.push({id:t.href,label,values:analysis(r?.media,r?.profile?(r.mediaStatus||'미제공'):status)});
+   const info=r?.profile||profileObservation;
+   profiles.push({id:t.href,label,notice:info?undefined:unavailable,values:[...Object.keys(profileFields).map(k=>observedCell(k,r?.profile,profileObservation)),r?.checkedAt?date(Date.parse(r.checkedAt)):'—']});
+   const enriched=r?.media?.map(row=>supplement(row,evidence.get(researchTarget(String(row.permalink))?.href||'')));
+   const usesPublic=r?.media?.some(row=>{const hit=evidence.get(researchTarget(String(row.permalink))?.href||'');return Object.keys(hit?.counts||{}).some(k=>row[k]==null);});
+   stats.push({id:t.href,label:<>{label}{usesPublic&&<small>공개 검색 수치 포함</small>}</>,values:analysis(enriched,'—'),notice:enriched?.length?undefined:(r?.profile?(r.mediaStatus==='미제공'?'확인된 게시물 없음':r.mediaStatus):unavailable)});
   }
   let media=r?.media;
   if(!t.username){
    const match=Object.values(results).flatMap(x=>x.media||[]).find(m=>typeof m.permalink==='string'&&researchTarget(m.permalink)?.href===t.href);
    if(match)media=[match];
+   else if(profileObservation)media=[{permalink:t.href}];
   }
-  const reason=Array.isArray(media)&&media.length===0?'표본 없음':r?.profile?(r.mediaStatus||'미제공'):status;
-  for(const [i,item] of (media?.length?media:[null]).entries())posts.push({id:t.href+i,label,values:Object.keys(mediaFields).map(k=>cell(k,item?.[k],item?'미제공':reason))});
+  if(!media?.length){
+   posts.push({id:t.href,label,values:[],notice:r?.profile?'확인된 게시물 없음':unavailable});
+  }else{
+   for(const [i,item] of media.entries()){
+    const href=typeof item.permalink==='string'?researchTarget(item.permalink)?.href:undefined;
+    posts.push({id:t.href+i,label:href?link(href):label,values:Object.keys(mediaFields).map(k=>observedCell(k,item,href?evidence.get(href):undefined))});
+   }
+  }
  }
- return <>{profiles.length>0&&<><Table title="계정 정보" first="조회 계정" headers={[...Object.values(profileFields),'수집 시각 (한국시간)']} rows={profiles}/>
+ return <><p className="research-legend">— 확인된 수치 없음 · 공개 검색 수치는 검색 당시의 표기값입니다.</p>{profiles.length>0&&<><Table title="계정 정보" first="조회 계정" headers={[...Object.values(profileFields),'수집 시각 (한국시간)']} rows={profiles}/>
  <Table title="게시물 반응과 업로드 주기 · 최근 최대 12건" first="조회 계정" headers={kpis} rows={stats}/></>}
  <Table title="게시물별 상세 정보" first="조회 대상" headers={Object.values(mediaFields)} rows={posts}/>
- {targets.some(t=>!t.username)&&<p>게시물 링크만으로는 작성자의 통계를 조회할 수 없습니다. 작성자 아이디를 함께 입력하면 최근 표본에서 일치하는 게시물의 값을 표시합니다.</p>}</>;
+ {targets.some(t=>!t.username)&&<p>게시물 링크는 공개 검색 수치를 확인합니다. 작성자 아이디도 입력하면 최근 게시물의 API 수치를 함께 확인합니다.</p>}</>;
 }

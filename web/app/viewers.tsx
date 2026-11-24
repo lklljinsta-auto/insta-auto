@@ -2,12 +2,12 @@
 import {useEffect,useState} from 'react';
 export default function Viewers(){
  const [rows,setRows]=useState<{email:string}[]>([]),[email,setEmail]=useState(''),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);
- async function read(){const r=await fetch('/api/viewers',{cache:'no-store'});if(!r.ok)throw Error('목록을 불러오지 못했습니다.');setRows((await r.json()).viewers);}
+ async function read(){const r=await fetch('/api/viewers',{cache:'no-store'});if(!r.ok)throw Error('목록을 불러오지 못했습니다.');setRows((await r.json() as {viewers:{email:string}[]}).viewers);}
  useEffect(()=>{read().catch(e=>setMsg(e.message));},[]);
  async function change(action:string,address:string){
   if(busy)return;setBusy(true);
   try{const r=await fetch('/api/viewers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,email:address})});
-   const data=await r.json();if(!r.ok)throw Error(data.error||'저장 실패');
+   const data=await r.json() as {error?:string};if(!r.ok)throw Error(data.error||'저장 실패');
    await read(); if(action==='add')setEmail('');setMsg(action==='add'?'추가했습니다. 이 사이트 주소를 전달하세요.':'사용 권한을 해제했습니다.');
   }catch(e){setMsg(e instanceof Error?e.message:'저장 실패');}finally{setBusy(false);}
  }

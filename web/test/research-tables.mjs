@@ -10,10 +10,14 @@ const t={href:'https://www.instagram.com/sample/',username:'sample',label:'@samp
 const render=result=>renderToStaticMarkup(React.createElement(module.exports.ResearchTables,{targets:[t],results:{[t.href]:result}}));
 const empty=render({status:'API 미연결'});
 assert.match(empty,/<thead>/);assert.match(empty,/평균 업로드 간격/);assert.match(empty,/프로필 사진/);
-assert.match(empty,/<td>API 미연결<\/td>/);assert.doesNotMatch(empty,/<iframe|<img/);
+assert.match(empty,/<td colSpan="[0-9]+">API 미연결<\/td>/);assert.doesNotMatch(empty,/<iframe|<img/);
 const data=render({status:'조회 완료',profile:{profile_picture_url:'https://example.org/photo.jpg'},media:[
  {view_count:0,comments_count:8,timestamp:'2026-11-01T10:00:00Z'},
  {view_count:20,comments_count:0,timestamp:'2026-11-03T10:00:00Z'},
  {view_count:null,comments_count:4,timestamp:'2026-11-05T10:00:00Z'}]});
 for(const value of ['10<small>유효 2건','12<small>유효 3건','4<small>유효 3건','2일<small>간격 2개','src="https://example.org/photo.jpg"'])assert.ok(data.includes(value),value);
 console.log('PASS field headers above values, no embed, real photo URL, missing vs zero and sample interval');
+const long=render({status:'조회 완료',profile:{},media:[{caption:'긴 캡션\n'.repeat(800),permalink:'https://www.instagram.com/p/Exact/'}]});
+assert.match(long,/<details class="research-long-text"><summary>[^\n<]{1,50}<\/summary>/);
+const indexed=render({status:'조회 불가',publicReport:{failed:0,observations:[{url:t.href,counts:{followers_count:'1.2만'},capturedAt:null}]}});
+assert.match(indexed,/1.2만<small>공개 검색/);

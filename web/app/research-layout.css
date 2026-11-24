@@ -1,0 +1,14 @@
+.research-scroll { min-width: 0; overscroll-behavior-x: contain; }
+.research-table { width: max-content; min-width: 100%; }
+.research-table td,
+.research-table tbody th { white-space: nowrap; overflow-wrap: normal; }
+.research-table td { min-width: 6rem; max-width: none; }
+.research-table tbody th { z-index: 1; }
+.research-table td:has(.research-long-text) { width: 18rem; }
+.research-long-text { width: 18rem; white-space: normal; }
+.research-long-text summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; color: var(--navy); }
+.research-long-text summary::before { content: '▸ '; }
+.research-long-text[open] summary::before { content: '▾ '; }
+.research-long-text summary { list-style: none; }
+.research-long-text[open] div { max-height: 12rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .5rem; }
+.research-legend { margin: 16px 0 0; color: var(--muted); font-size: .9rem; }

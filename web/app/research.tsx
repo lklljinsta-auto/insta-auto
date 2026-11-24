@@ -3,6 +3,7 @@ import {useEffect,useRef,useState,type FormEvent} from 'react';
 import {researchTarget,type Target} from '../lib/research-target';
 
 import {mergeUsage,type UsageReport} from '../lib/meta-usage';
+import {publicQueries,type PublicReport} from '../lib/public-counts';
 import {ResearchTables} from './research-tables';
 import type {Result} from '../lib/research-fields';
 
@@ -29,20 +30,30 @@ export default function Research({configured}:{configured:boolean}){
     const target=list[index++];let result:Result;
     try{
      const r=await fetch('/api/research',{method:'POST',cache:'no-store',signal:next.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({input:target.href})});
-     const data=await r.json();
+     const data=await r.json() as Result;
      result=r.ok&&typeof data.status==='string'?data:{status:r.status===403?'사용 권한 확인 필요':'조회 오류'};
     }catch{result={status:'조회 오류'};}
     if(next.signal.aborted) return;
-    setResults(old=>({...old,[target.href]:result}));
+    const links=publicQueries(target,result);
+    setResults(old=>({...old,[target.href]:{...result,publicPending:links.length>0}}));
     const report=result.usage;
     if(report) setUsage(previous=>mergeUsage(previous,report));
     else setUsageMessage(result.status==='API 미연결'?'API 미연결':result.status+' · 사용량 확인 전');
+    if(links.length){
+     let report:PublicReport={observations:[],failed:links.length};
+     try{
+      const response=await fetch('/api/research/public',{method:'POST',cache:'no-store',signal:next.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({links})});
+      if(response.ok){const data=await response.json() as PublicReport;if(Array.isArray(data.observations))report=data;}
+     }catch{}
+     if(next.signal.aborted)return;
+     setResults(old=>({...old,[target.href]:{...result,publicReport:report}}));
+    }
    }
   }
   void Promise.all([run(),run()]);
  }
  return <section className="view-root"><div className="page-heading"><div><p className="eyebrow">인스타오토</p><h1>Instagram 계정 분석</h1><p className="page-description">아이디나 링크로 바로 조회합니다. 새로고침하면 입력과 결과가 사라집니다.</p>
- <p className="page-description">공개 비즈니스·크리에이터 계정만 API로 조회할 수 있습니다. 개인·비공개·연령 제한 계정은 제외됩니다.</p></div></div>
+ <p className="page-description">Meta API는 공개 비즈니스·크리에이터 계정을 조회합니다. 빠진 수치는 공개 검색 결과에 표시된 범위에서 보완합니다.</p></div></div>
  <section className="panel form-panel"><form onSubmit={submit} autoComplete="off"><label htmlFor="research-input">Instagram 아이디 · 프로필 · 게시물 · 릴스 링크</label>
  <textarea id="research-input" className="large-input" rows={4} placeholder="여러 대상을 줄바꿈이나 쉼표로 구분해 입력" required value={input} onChange={e=>setInput(e.target.value)}/>
  <div className="form-actions"><button className="btn btn-primary" type="submit">바로 조회</button></div>{notice&&<p role="status">{notice}</p>}</form></section>

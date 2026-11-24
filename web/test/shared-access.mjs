@@ -127,3 +127,27 @@ assert.equal(capped.status,'호출 한도 도달');assert.equal(capped.usage.lim
 const old={...fallback.usage,receivedAt:stamp,sample:{...fallback.usage.sample,measuredAt:stamp}};
 assert.deepEqual(mergeUsage(capped.usage,old),capped.usage);
 console.log('PASS Meta usage: missing and malformed headers, zero, capped, fallback, concurrent response order.');
+const publicRoute=await routes('app/api/research/public/route.ts');
+const publicCounts=await routes('lib/public-counts.ts');
+const exact='https://www.instagram.com/sample/';
+const item={url:exact,snippet:'1.2K Followers, 0 Following, 27 Posts - text',source:{captured_at:'2026-11-01'}};
+globalThis.fetch=async(url,options)=>{
+ assert.equal(url.origin,'https://freeserp.ai');assert.equal(url.searchParams.get('q'),exact);assert.equal(options.headers,undefined);
+ return Response.json({results:[{...item,url:'https://www.instagram.com/wrong/'},item]});
+};
+const external=await (await publicRoute.POST(post({links:[exact]}))).json();
+assert.equal(external.failed,0);
+assert.deepEqual(external.observations[0].counts,{followers_count:'1.2K',follows_count:'0',media_count:'27'});
+assert.equal(publicCounts.supplement({followers_count:0},external.observations[0]).followers_count,0);
+const profileTarget={href:exact,username:'sample'};
+assert.equal(publicCounts.readPublicResult(profileTarget,{...item,snippet:'Buy 900 Likes, 500 Followers'}),null);
+assert.equal(publicCounts.readPublicResult(profileTarget,{...item,snippet:'100 Followers - This account is private'}),null);
+const reel={href:'https://www.instagram.com/reel/ABc/',username:null};
+assert.deepEqual(publicCounts.readPublicResult(reel,{url:reel.href,snippet:'좋아요 1.2만개, 댓글 0개 · 본문 99 views'}).counts,{like_count:'1.2만',comments_count:'0'});
+assert.equal(publicCounts.readPublicResult(reel,{url:'https://www.instagram.com/reel/abc/',snippet:'4 views'}),null);
+globalThis.fetch=async()=>{throw Error('index unavailable')};
+assert.equal((await (await publicRoute.POST(post({links:[exact]}))).json()).failed,1);
+assert.equal((await publicRoute.POST(post({links:['https://untrusted.example/']}))).status,400);
+user('other','nonmember@example.test');
+assert.equal((await publicRoute.POST(post({links:[exact]}))).status,403);
+console.log('PASS public numeric fallback, Korean and English counts, exact URL, zero precedence, private profile, access and network failure');

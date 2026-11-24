@@ -8,7 +8,7 @@ const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cac
 export async function POST(req:Request){
  if(!await consoleAccess())return json({error:'등록된 사용자로 로그인하세요.'},403);
  if(req.headers.get('origin')!==new URL(req.url).origin)return json({error:'요청 출처를 확인하세요.'},403);
- const body=await req.json().catch(()=>null);
+ const body=await req.json().catch(()=>null) as {input?:unknown}|null;
  const target=typeof body?.input==='string'?researchTarget(body.input):null;
  if(!target)return json({error:'Instagram 주소 또는 아이디를 확인하세요.'},400);
  if(!target.username)return json({status:'작성자 아이디 필요'});
@@ -46,7 +46,8 @@ export async function POST(req:Request){
    result=await query('id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count,media.limit(12){id,permalink,caption,media_type,media_product_type,timestamp,like_count,comments_count,view_count}');
   }
   if(!result.data&&result.status!=='호출 한도 도달'&&result.code===100){
-   result=await query(base+',media.limit(12){permalink,caption,media_type,timestamp,like_count,comments_count}');
+   result=await query('id,username,name,biography,website,profile_picture_url,followers_count,follows_count,media_count,media.limit(12){id,permalink,caption,media_type,media_product_type,timestamp,like_count,comments_count}');
+   if(!result.data&&result.code===100)result=await query(base+',media.limit(12){permalink,caption,media_type,timestamp,like_count,comments_count}');
   }
   let mediaStatus='미제공';
   if(!result.data&&result.status!=='호출 한도 도달'&&[10,100,200].includes(result.code??0)){
